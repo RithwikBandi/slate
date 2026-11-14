@@ -1,0 +1,10 @@
+{
+  "name": "Slate",
+  "short_name": "Slate",
+  "description": "Every video, ready to publish.",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#0C0D10",
+  "theme_color": "#0C0D10",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
