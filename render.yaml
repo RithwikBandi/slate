@@ -1,10 +1,11 @@
 # Render blueprint for the Slate sign-in service (free plan, no database).
+# Only the backend/ folder is built and run; the web app (frontend/) is deployed on Vercel.
 services:
   - type: web
     name: slate-auth
     runtime: node
     plan: free
-    rootDir: server
+    rootDir: backend
     buildCommand: "true"
     startCommand: node index.js
     healthCheckPath: /api/health

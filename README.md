@@ -25,27 +25,32 @@ Not included on purpose: automatic YouTube upload and a browser extension.
 | UI | Hand-built on Radix Dialog and cmdk. No templates |
 | Motion | View Transitions API in the app. GSAP ScrollTrigger and Lenis on the landing page only. A small custom WebGL shader for the hero (no 3D library) |
 | Storage | The user's Google Drive, scope `drive.file` (Slate can only touch files it created). One `slate.db.json` holds the text data |
-| Sign-in | `server/index.js`: a zero-dependency Node service. The refresh token lives only in an AES-256-GCM encrypted, httpOnly cookie in the user's browser |
+| Sign-in | `backend/index.js`: a zero-dependency Node service. The refresh token lives only in an AES-256-GCM encrypted, httpOnly cookie in the user's browser |
 | Hosting | Web app on Vercel. Sign-in service on Render, reached through Vercel's `/api/*` rewrite so the cookie is first-party |
 
 ```
-src/lib/        types, Drive adapter, demo adapter, vault store, upload queue, auth client
-src/components/ shell, command palette, upload tray, file browser, cards, UI primitives
-src/pages/      Landing, Home, Videos, VideoDetail, Calendar, Library, Settings, Legal
-server/         sign-in service for Render
+frontend/               the web app, deployed to Vercel
+  src/lib/              types, Drive adapter, demo adapter, vault store, upload queue, auth client
+  src/components/       shell, command palette, upload tray, file browser, cards, UI primitives
+  src/pages/            Landing, Home, Videos, VideoDetail, Calendar, Library, Settings, Legal
+backend/                the sign-in service, deployed to Render (index.js, no dependencies)
+render.yaml             Render blueprint (builds only backend/)
+.github/workflows/      backup keep-alive pinger
 ```
 
 ## Run it locally
 
 ```bash
+cd frontend
 npm install
 npm run dev            # http://localhost:5173  ("Try the demo" works with no setup)
 ```
 
-To use real Google sign-in locally, copy `.env.example` to `.env`, fill it in, then in a second terminal:
+To use real Google sign-in locally, copy `backend/.env.example` to `backend/.env`, fill it in, then in a second terminal:
 
 ```bash
-node --env-file=.env server/index.js
+cd backend
+node --env-file=.env index.js
 ```
 
 Add `http://localhost:5173/api/auth/callback` to the OAuth client's redirect URIs.
@@ -64,14 +69,14 @@ Add `http://localhost:5173/api/auth/callback` to the OAuth client's redirect URI
 ### 2. Render (the sign-in service)
 
 1. Push this repository to GitHub.
-2. In Render: **New > Blueprint**, pick the repository. It reads `render.yaml`.
+2. In Render: **New > Blueprint**, pick the repository. It reads `render.yaml` and deploys only the `backend/` folder.
 3. Set the environment variables: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_ORIGIN` (`https://YOUR-APP.vercel.app`, no trailing slash) and optionally `YT_API_KEY`. `COOKIE_SECRET` is generated for you.
 4. Note the service URL, for example `https://slate-auth.onrender.com`.
 
 ### 3. Vercel (the web app)
 
-1. In `vercel.json`, change the first rewrite's destination to your Render URL.
-2. Import the repository in Vercel. Framework preset: **Vite**. No environment variables are needed.
+1. In `frontend/vercel.json`, change the first rewrite's destination to your Render URL.
+2. Import the repository in Vercel and set **Root Directory** to `frontend`. Framework preset: **Vite**. No environment variables are needed.
 3. If you use a custom domain, update `APP_ORIGIN` on Render and the redirect URI in Google to match it.
 
 ### 4. Keep the sign-in service awake
