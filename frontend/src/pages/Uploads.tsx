@@ -1,14 +1,11 @@
-import { CalendarDays, ExternalLink, Film, List, Play, Send } from 'lucide-react'
+import { CalendarDays, ExternalLink, Film, Play, Send } from 'lucide-react'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { CalendarView } from '../components/CalendarView'
-import { Button, Empty, Segmented } from '../components/ui'
+import { Empty } from '../components/ui'
 import { readiness, splitUploads, videoPath } from '../lib/flow'
 import type { Video } from '../lib/types'
 import { cx, fmtDay, relDay } from '../lib/util'
 import { useFiles, useVault } from '../lib/vault'
-
-type View = 'list' | 'calendar'
 
 function Row({ v, focus }: { v: Video; focus: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -66,8 +63,7 @@ function Section({ title, hint, count, children, tone }: { title: string; hint: 
 /** The YouTube pipeline: what is overdue, what is next, what is waiting for a date, and what already went out. */
 export default function Uploads() {
   const videos = useVault((s) => s.db.videos)
-  const [params, setParams] = useSearchParams()
-  const view = (params.get('view') === 'calendar' ? 'calendar' : 'list') as View
+  const [params] = useSearchParams()
   const focus = params.get('focus')
   const b = useMemo(() => splitUploads(videos), [videos])
   const total = b.ready.length + b.overdue.length + b.upcoming.length + b.published.length
@@ -79,7 +75,7 @@ export default function Uploads() {
           <p className="label">From edited file to published video</p>
           <h1 className="display mt-2 text-[clamp(32px,4.4vw,48px)]">Uploads</h1>
         </div>
-        <Segmented label="View" value={view} onChange={(v) => setParams(v === 'list' ? {} : { view: v }, { replace: true })} options={[{ id: 'list', label: <><List size={15} /> Pipeline</> }, { id: 'calendar', label: <><CalendarDays size={15} /> Calendar</> }]} />
+        <Link to="/app/calendar" viewTransition className="btn"><CalendarDays size={16} /> Calendar</Link>
       </header>
 
       {total === 0 ? (
@@ -91,15 +87,13 @@ export default function Uploads() {
             action={<Link to="/app/library?space=edited" viewTransition className="btn btn-primary">Open Edited footage</Link>}
           />
         </div>
-      ) : view === 'calendar' ? (
-        <CalendarView />
       ) : (
         <>
           <Section title="Overdue" hint="Scheduled in the past and not published" count={b.overdue.length} tone="text-bad">{b.overdue.map((v) => <Row key={v.id} v={v} focus={focus === v.id} />)}</Section>
           <Section title="Upcoming" hint="Scheduled, in date order" count={b.upcoming.length}>{b.upcoming.map((v) => <Row key={v.id} v={v} focus={focus === v.id} />)}</Section>
           <Section title="Ready to schedule" hint="Edited and waiting for a date" count={b.ready.length}>{b.ready.map((v) => <Row key={v.id} v={v} focus={focus === v.id} />)}</Section>
           <Section title="Published" hint="Previous uploads" count={b.published.length}>{b.published.map((v) => <Row key={v.id} v={v} focus={focus === v.id} />)}</Section>
-          <div className="text-center"><Button variant="ghost" size="sm" onClick={() => setParams({ view: 'calendar' }, { replace: true })}><CalendarDays size={14} /> See it on the calendar</Button></div>
+          <div className="text-center"><Link to="/app/calendar" viewTransition className="btn btn-sm btn-ghost"><CalendarDays size={14} /> See it on the calendar</Link></div>
         </>
       )}
     </div>

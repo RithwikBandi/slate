@@ -106,7 +106,7 @@ export default function Home() {
         </section>
 
         <section className="card rise p-5" style={{ ['--i' as string]: 6 }} aria-label="This week">
-          <div className="mb-3 flex items-center justify-between"><h2 className="display text-[22px]">This week</h2><Link to="/app/uploads?view=calendar" viewTransition className="ulink text-[13px] font-semibold text-mute hover:text-paper">Calendar</Link></div>
+          <div className="mb-3 flex items-center justify-between"><h2 className="display text-[22px]">This week</h2><Link to="/app/calendar" viewTransition className="ulink text-[13px] font-semibold text-mute hover:text-paper">Calendar</Link></div>
           <ol className="grid gap-1">
             {week.map((d, i) => (
               <li key={d.date} className="flex items-center gap-3 rounded-xl px-3 py-2">

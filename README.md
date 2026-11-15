@@ -13,7 +13,8 @@ Idea -> Script -> Shoot -> Edit   (Ideas board)      Ready -> Scheduled -> Publi
 - **Ideas**: a board for videos in production. A new idea is a title and a description; open it to write the script (with a built-in teleprompter), link footage, and move it along.
 - **Library**: Drive for creators. **Raw footage** and **Edited** spaces with your own nested folders, thumbnails, drag-and-drop move, rename, share with an editor (by email or link), search, grid and list views. Every upload asks whether it is raw or edited and where it belongs.
 - **Send to Uploads**: one click turns an edited file in the Library into a video with a checklist, a date and a place in the pipeline.
-- **Uploads**: the YouTube pipeline. Overdue, **Upcoming**, ready to schedule and previously **Published**, as a list or a calendar. Open a video for its title, description, pinned comment, tags, thumbnail, files and publish checklist.
+- **Uploads**: the YouTube pipeline. Overdue, **Upcoming**, ready to schedule and previously **Published**. Open a video for its title, description, pinned comment, tags, thumbnail, files and publish checklist.
+- **Calendar**: a month planner showing what has been published and what is coming up. Pick a day to see its videos, drag a video onto a day to schedule it, or schedule from the side panel.
 - **Publish mode**: download the final, copy each field in YouTube Studio's order, paste the link back.
 - **Custom video player** that streams from Drive: glass controls, scrubbing with note markers, speed, frame-step, picture in picture, resume where you stopped, keyboard shortcuts, and timestamped review notes.
 - **Download** anything from the app, with live progress.

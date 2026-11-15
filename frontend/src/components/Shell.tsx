@@ -1,4 +1,4 @@
-import { CloudAlert, Clapperboard, House, Lightbulb, Library, Plus, Search, Send, Settings, Upload } from 'lucide-react'
+import { CalendarDays, CloudAlert, Clapperboard, House, Lightbulb, Library, Plus, Search, Send, Settings, Upload } from 'lucide-react'
 import { Suspense, useEffect } from 'react'
 import { Link, NavLink, Navigate, Outlet } from 'react-router'
 import { signIn } from '../lib/auth'
@@ -20,6 +20,7 @@ const NAV = [
   { to: '/app/ideas', label: 'Ideas', icon: Lightbulb },
   { to: '/app/library', label: 'Library', icon: Library },
   { to: '/app/uploads', label: 'Uploads', icon: Send },
+  { to: '/app/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/app/settings', label: 'Settings', icon: Settings },
 ]
 
@@ -126,7 +127,7 @@ export default function Shell() {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-line bg-coal/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden" aria-label="Main">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-line bg-coal/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden" aria-label="Main">
         {NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end} viewTransition className={({ isActive }) => cx('grid place-items-center gap-0.5 py-2.5 text-[10.5px] font-semibold', isActive ? 'text-lime' : 'text-mute')}><n.icon size={20} />{n.label}</NavLink>)}
       </nav>
 

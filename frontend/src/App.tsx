@@ -11,6 +11,7 @@ const load = {
   Ideas: () => import('./pages/Ideas'),
   Library: () => import('./pages/Library'),
   Uploads: () => import('./pages/Uploads'),
+  Calendar: () => import('./pages/Calendar'),
   VideoDetail: () => import('./pages/VideoDetail'),
   Settings: () => import('./pages/Settings'),
   Legal: () => import('./pages/Legal'),
@@ -21,6 +22,7 @@ const Home = lazy(load.Home)
 const Ideas = lazy(load.Ideas)
 const Library = lazy(load.Library)
 const Uploads = lazy(load.Uploads)
+const Calendar = lazy(load.Calendar)
 const VideoDetail = lazy(load.VideoDetail)
 const Settings = lazy(load.Settings)
 const Legal = lazy(load.Legal)
@@ -49,11 +51,11 @@ const router = createBrowserRouter([
       { path: 'ideas', element: <Ideas /> },
       { path: 'library', element: <Library /> },
       { path: 'uploads', element: <Uploads /> },
+      { path: 'calendar', element: <Calendar /> },
       { path: 'v/:id', element: <VideoDetail /> },
       { path: 'settings', element: <Settings /> },
       // pages from the first version of Slate
       { path: 'videos', element: <Navigate to="/app/ideas" replace /> },
-      { path: 'calendar', element: <Navigate to="/app/uploads?view=calendar" replace /> },
     ],
   },
   { path: '*', element: <NotFound /> },

@@ -1,5 +1,5 @@
 import { Command } from 'cmdk'
-import { Clapperboard, House, Lightbulb, Library, Plus, Send, Settings, Upload } from 'lucide-react'
+import { CalendarDays, Clapperboard, House, Lightbulb, Library, Plus, Send, Settings, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { openNewIdea, openUpload, useUI, videoPath } from '../lib/flow'
 import { stageInfo } from '../lib/types'
@@ -10,6 +10,7 @@ const PAGES = [
   { to: '/app/ideas', label: 'Ideas', icon: Lightbulb },
   { to: '/app/library', label: 'Library', icon: Library },
   { to: '/app/uploads', label: 'Uploads', icon: Send },
+  { to: '/app/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/app/settings', label: 'Settings', icon: Settings },
 ]
 
