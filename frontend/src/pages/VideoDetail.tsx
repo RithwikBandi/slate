@@ -1,237 +1,228 @@
-import { ArrowLeft, BadgeCheck, Check, Download, ExternalLink, Eye, FileJson, FolderPlus, Link2, MessageSquare, ThumbsUp, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Clapperboard, Download, ExternalLink, Eye, FileJson, FolderOpen, Library, MessageSquare, Play, ScrollText, Star, ThumbsUp, Trash2, Unlink, Upload } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
-import { Files } from '../components/Files'
-import { Button, CopyButton, KitField, Modal, StatusPill } from '../components/ui'
-import { STATUSES, type FolderRef, type Kit, type Project, type Status } from '../lib/types'
-import { copyText, cx, fmtDay, kitText, toast, ytId } from '../lib/util'
-import { driveApi, seriesNames, useProject, useVault } from '../lib/vault'
+import { Teleprompter } from '../components/Teleprompter'
+import { Button, CopyButton, KitField, Modal, StagePill } from '../components/ui'
+import { nextStep, openUpload, readiness, useUI } from '../lib/flow'
+import { usePlayer } from '../lib/player'
+import { STAGES, stageIndex, type DriveItem, type Kit, type Video } from '../lib/types'
+import { useTransfers } from '../lib/uploads'
+import { cx, fmtBytes, fmtClock, fmtDay, kitText, readMinutes, toast, wordCount, ytId } from '../lib/util'
+import { driveApi, seriesNames, useFiles, useVault, useVideo } from '../lib/vault'
 
 const TABS = [
-  { id: 'files', label: 'Files' },
+  { id: 'script', label: 'Script' },
+  { id: 'footage', label: 'Footage' },
   { id: 'kit', label: 'Kit' },
   { id: 'publish', label: 'Publish' },
   { id: 'notes', label: 'Notes' },
 ] as const
 type TabId = (typeof TABS)[number]['id']
 
-const DEFAULT_FOLDERS: { name: string; kind: FolderRef['kind'] }[] = [
-  { name: 'Raw footage', kind: 'raw' },
-  { name: 'Edited', kind: 'edited' },
-  { name: 'Thumbnails', kind: 'thumbs' },
-]
-const FOLDER_HINT: Record<FolderRef['kind'], string> = {
-  raw: 'Camera originals and B-roll. They upload in chunks and resume if the connection drops.',
-  edited: 'Every export of the cut. The newest becomes the Final; star a different one to change it.',
-  thumbs: 'Thumbnail options and their source files.',
-  custom: 'Anything else this video needs.',
-}
-
 export default function VideoDetail() {
   const { id } = useParams()
-  const p = useProject(id)
-  const projects = useVault((s) => s.db.projects)
+  const v = useVideo(id)
+  const nav = useNavigate()
   const [params, setParams] = useSearchParams()
-  const tab = (TABS.find((t) => t.id === params.get('tab'))?.id ?? 'files') as TabId
-  const allSeries = useMemo(() => seriesNames(projects), [projects])
+  const tab = (TABS.find((t) => t.id === params.get('tab'))?.id ?? 'script') as TabId
+  const [final, thumb] = useFiles([v?.finalId, v?.thumbId])
+  const editItems = useFiles(v?.editIds ?? [])
+  const go = (t: string) => setParams(t === 'script' ? {} : { tab: t }, { replace: true })
 
-  if (!p)
+  if (!v)
     return (
       <div className="grid place-items-center py-24 text-center">
         <h1 className="display text-[30px]">That video is not in your vault</h1>
         <p className="mt-2 text-mute">It may have been deleted, or the link is from another account.</p>
-        <Link to="/app/videos" viewTransition className="btn btn-primary mt-6">
-          Back to videos
-        </Link>
+        <Link to="/app/ideas" viewTransition className="btn btn-primary mt-6">Back to Ideas</Link>
       </div>
     )
 
-  const patch = (v: Partial<Project>) => useVault.getState().patchProject(p.id, v)
-
-  const setDate = (publishDate: string | null) =>
-    patch({ publishDate, status: publishDate && p.status === 'ready' ? 'scheduled' : !publishDate && p.status === 'scheduled' ? 'ready' : p.status })
+  const patch = (p: Partial<Video>) => useVault.getState().patchVideo(v.id, p)
+  const step = nextStep(v)
+  const r = readiness(v)
+  const poster = (thumb ?? final)?.thumbnailLink?.replace(/=s\d+$/, '=s800')
+  const play = () => final && usePlayer.getState().play(final, { videoId: v.id, queue: editItems.filter((x): x is DriveItem => !!x) })
+  const back = stageIndex(v.stage) >= stageIndex('ready') ? { to: '/app/uploads', label: 'Uploads' } : { to: '/app/ideas', label: 'Ideas' }
 
   return (
-    <div className="grid gap-6" data-status={p.status}>
+    <div className="grid gap-6" data-stage={v.stage}>
       <header>
-        <Link to="/app/videos" viewTransition className="mb-4 inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-mute transition-colors hover:text-paper">
-          <ArrowLeft size={15} /> Videos
-        </Link>
+        <Link to={back.to} viewTransition className="mb-4 inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-mute transition-colors hover:text-paper"><ArrowLeft size={15} /> {back.label}</Link>
         <div className="flex items-start gap-3">
-          {p.episode ? <span className="display mt-1 text-[clamp(22px,3vw,34px)] text-[var(--st)]">#{String(p.episode).padStart(2, '0')}</span> : null}
-          <input
-            className="display w-full min-w-0 bg-transparent text-[clamp(28px,4.2vw,48px)] outline-none placeholder:text-dim"
-            style={{ viewTransitionName: 'slate-title' }}
-            value={p.title}
-            onChange={(e) => patch({ title: e.target.value })}
-            onBlur={(e) => !e.target.value.trim() && patch({ title: 'Untitled video' })}
-            aria-label="Working title"
-            maxLength={140}
-          />
+          {v.episode ? <span className="display mt-1 text-[clamp(22px,3vw,34px)] text-[var(--st)]">#{String(v.episode).padStart(2, '0')}</span> : null}
+          <input className="display w-full min-w-0 bg-transparent text-[clamp(28px,4.2vw,48px)] outline-none placeholder:text-dim" style={{ viewTransitionName: 'slate-title' }} value={v.title} onChange={(e) => patch({ title: e.target.value })} onBlur={(e) => !e.target.value.trim() && patch({ title: 'Untitled video' })} aria-label="Working title" maxLength={140} />
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <label htmlFor="vd-status" className="label mb-1.5 block">
-              Stage
-            </label>
-            <select id="vd-status" className="input" value={p.status} onChange={(e) => patch({ status: e.target.value as Status })}>
-              {STATUSES.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="vd-date" className="label mb-1.5 block">
-              Publish date
-            </label>
-            <input id="vd-date" type="date" className="input" value={p.publishDate ?? ''} onChange={(e) => setDate(e.target.value || null)} />
-          </div>
-          <div>
-            <label htmlFor="vd-series" className="label mb-1.5 block">
-              Series
-            </label>
-            <input id="vd-series" className="input" list="vd-series-list" value={p.series} onChange={(e) => patch({ series: e.target.value })} placeholder="None" />
-            <datalist id="vd-series-list">
-              {allSeries.map((s) => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
-          </div>
-          <div>
-            <label htmlFor="vd-ep" className="label mb-1.5 block">
-              Episode / day
-            </label>
-            <input id="vd-ep" type="number" min={1} className="input" value={p.episode ?? ''} onChange={(e) => patch({ episode: e.target.value ? Math.max(1, Number(e.target.value)) : null })} placeholder="None" />
-          </div>
+        {/* where it is in the workflow */}
+        <ol className="mt-5 flex flex-wrap items-center gap-1.5" aria-label="Workflow stage">
+          {STAGES.map((s, i) => {
+            const at = stageIndex(v.stage)
+            return (
+              <li key={s.id} className="flex items-center gap-1.5">
+                <button type="button" data-stage={s.id} title={s.hint} aria-current={s.id === v.stage ? 'step' : undefined} onClick={() => useVault.getState().setStage(v.id, s.id)} className={cx('pill cursor-pointer transition-transform hover:-translate-y-px', s.id !== v.stage && (i < at ? 'opacity-70' : '!bg-transparent opacity-45 hover:opacity-100'), s.id === v.stage && '!bg-[var(--st)] !text-carbon')}>{i < at && <Check size={11} strokeWidth={3} />}{s.label}</button>
+                {i < STAGES.length - 1 && <span className="h-px w-3 bg-line2" aria-hidden="true" />}
+              </li>
+            )
+          })}
+        </ol>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button variant="primary" onClick={() => { if (step.advanceTo) useVault.getState().setStage(v.id, step.advanceTo); go(step.tab) }}>{step.label} <ArrowRight size={16} /></Button>
+          <span className="text-[13.5px] text-mute">{step.hint}</span>
         </div>
       </header>
 
-      <div className="flex gap-1 overflow-x-auto rounded-full border border-line bg-coal p-1 sm:w-fit" role="tablist" aria-label="Video sections">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className="tab shrink-0" onClick={() => setParams(t.id === 'files' ? {} : { tab: t.id }, { replace: true })}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+        <div className="min-w-0">
+          <div className="mb-4 flex gap-1 overflow-x-auto rounded-full border border-line bg-coal p-1 sm:w-fit" role="tablist" aria-label="Video sections">
+            {TABS.map((t) => <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} className="tab shrink-0" onClick={() => go(t.id)}>{t.label}</button>)}
+          </div>
+          <div key={tab} className="rise">
+            {tab === 'script' && <ScriptTab v={v} />}
+            {tab === 'footage' && <FootageTab v={v} />}
+            {tab === 'kit' && <KitTab v={v} thumb={thumb} />}
+            {tab === 'publish' && <PublishTab v={v} final={final} goKit={() => go('kit')} goFootage={() => go('footage')} />}
+            {tab === 'notes' && <NotesTab v={v} final={final} onDelete={() => { useVault.getState().removeVideo(v.id); toast('Video deleted'); nav('/app/ideas', { viewTransition: true }) }} />}
+          </div>
+        </div>
 
-      <div key={tab} className="rise">
-        {tab === 'files' && <FilesTab p={p} />}
-        {tab === 'kit' && <KitTab p={p} />}
-        {tab === 'publish' && <PublishTab p={p} goKit={() => setParams({ tab: 'kit' }, { replace: true })} goFiles={() => setParams({}, { replace: true })} />}
-        {tab === 'notes' && <NotesTab p={p} />}
+        <aside className="grid content-start gap-4">
+          <div className="card overflow-hidden">
+            <button type="button" onClick={play} disabled={!final} className="group relative block aspect-video w-full bg-coal" aria-label={final ? 'Play the final export' : 'No final export yet'}>
+              {poster ? <img src={poster} alt="" referrerPolicy="no-referrer" className="h-full w-full object-cover" /> : <span className="grid h-full place-items-center text-dim"><Clapperboard size={36} /></span>}
+              {final && <span className="absolute inset-0 grid place-items-center bg-black/20 transition group-hover:bg-black/40"><span className="grid h-14 w-14 place-items-center rounded-full bg-paper text-carbon shadow-xl transition-transform group-hover:scale-110"><Play size={22} fill="currentColor" className="ml-1" /></span></span>}
+            </button>
+            <div className="flex items-center justify-between gap-2 p-3"><StagePill stage={v.stage} /><span className="mono text-[12px] text-mute">{final ? (final.durationMs ? fmtClock(final.durationMs / 1000) : fmtBytes(final.size)) : 'No final export'}</span></div>
+          </div>
+
+          <div className="card p-4">
+            <div className="mb-3 flex items-center justify-between"><p className="label">Ready to publish</p><span className={cx('mono text-[12px]', r.ready ? 'text-lime' : 'text-mute')}>{r.done}/{r.total}</span></div>
+            <ul className="grid gap-1">
+              {r.items.map((c) => (
+                <li key={c.key}>
+                  <button type="button" onClick={() => go(c.tab)} className="row flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13.5px]">
+                    <span className={cx('grid h-5 w-5 place-items-center rounded-full border', c.ok ? 'border-lime bg-lime text-carbon' : 'border-line2 text-transparent')}><Check size={12} strokeWidth={3} /></span>
+                    <span className={c.ok ? 'text-mute' : 'font-semibold'}>{c.label}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="card grid gap-3 p-4">
+            <div><label htmlFor="vd-date" className="label mb-1.5 block">Publish date</label><input id="vd-date" type="date" className="input" value={v.publishDate ?? ''} onChange={(e) => useVault.getState().setDate(v.id, e.target.value || null)} /></div>
+            <div className="grid grid-cols-[1fr_88px] gap-2">
+              <div><label htmlFor="vd-series" className="label mb-1.5 block">Series</label><input id="vd-series" className="input" list="vd-series-list" value={v.series} onChange={(e) => patch({ series: e.target.value })} placeholder="None" /><SeriesList /></div>
+              <div><label htmlFor="vd-ep" className="label mb-1.5 block">Episode</label><input id="vd-ep" type="number" min={1} className="input" value={v.episode ?? ''} onChange={(e) => patch({ episode: e.target.value ? Math.max(1, Number(e.target.value)) : null })} /></div>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   )
 }
 
-// ------------------------------------------------------------------ Files
-function FilesTab({ p }: { p: Project }) {
-  const folders = p.folderId ? p.folders : DEFAULT_FOLDERS.map((f) => ({ ...f, id: '' }))
-  const [sel, setSel] = useState(folders[0].name)
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
-  const current = folders.find((f) => f.name === sel) ?? folders[0]
-  const verifiedFinal = p.finalFileId !== null && p.verified.includes(p.finalFileId)
+function SeriesList() {
+  const videos = useVault((s) => s.db.videos)
+  const names = useMemo(() => seriesNames(videos), [videos])
+  return <datalist id="vd-series-list">{names.map((s) => <option key={s} value={s} />)}</datalist>
+}
 
-  const resolveFolder = async () => {
-    const ready = await useVault.getState().ensureFolders(p.id)
-    const hit = ready.folders.find((f) => f.name === current.name) ?? ready.folders[0]
-    return hit.id
-  }
+// ------------------------------------------------------------------ Script
+function ScriptTab({ v }: { v: Video }) {
+  const [prompter, setPrompter] = useState(false)
+  const set = (p: Partial<Video>) => useVault.getState().patchVideo(v.id, p)
+  return (
+    <div className="grid gap-4">
+      <div className="card grid gap-5 p-5 md:p-6">
+        <div>
+          <label htmlFor="sc-pitch" className="label mb-1.5 block">What is this video about?</label>
+          <textarea id="sc-pitch" className="input" rows={2} value={v.pitch} onChange={(e) => set({ pitch: e.target.value })} placeholder="The hook, the story, why anyone would watch" />
+        </div>
+        <div>
+          <div className="mb-1.5 flex items-end justify-between gap-3">
+            <label htmlFor="sc-script" className="label">Script</label>
+            <span className="mono text-[12px] text-dim">{wordCount(v.script)} words · about {fmtClock(readMinutes(v.script) * 60)} spoken</span>
+          </div>
+          <textarea id="sc-script" className="input min-h-[340px] text-[16px] leading-[1.7]" value={v.script} onChange={(e) => set({ script: e.target.value })} placeholder={'Hook:\n\nBeat 1:\n\nBeat 2:\n\nClose:'} />
+          <p className="mt-2 text-[12.5px] text-dim">Saved to your Drive as you type.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" onClick={() => setPrompter(true)} disabled={!v.script.trim()}><ScrollText size={16} /> Teleprompter</Button>
+          <CopyButton text={v.script} label="Copy script" what="the script" />
+        </div>
+      </div>
+      {prompter && <Teleprompter text={v.script} title={v.title} onClose={() => setPrompter(false)} />}
+    </div>
+  )
+}
 
-  const addFolder = async (e: FormEvent) => {
-    e.preventDefault()
-    const clean = name.trim()
-    if (!clean) return
-    if (folders.some((f) => f.name.toLowerCase() === clean.toLowerCase())) return toast('A folder with that name already exists', 'bad')
-    try {
-      await useVault.getState().addFolder(p.id, clean)
-      setSel(clean)
-      setName('')
-      setAdding(false)
-    } catch (err) {
-      toast(`Could not create the folder: ${(err as Error).message}`, 'bad')
-    }
-  }
+// ------------------------------------------------------------------ Footage
+function FileRow({ id, item, actions, tag }: { id: string; item: DriveItem | undefined; actions: ReactNode; tag?: ReactNode }) {
+  return (
+    <li className="row flex items-center gap-3 rounded-xl px-2.5 py-2">
+      <div className="grid h-11 w-16 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-coal text-dim">{item?.thumbnailLink ? <img src={item.thumbnailLink} alt="" loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" /> : <Clapperboard size={18} />}</div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-semibold">{item?.name ?? 'File unavailable'}</p>
+        <p className="mono flex flex-wrap items-center gap-x-2.5 text-[12px] text-dim">{item ? <><span>{fmtBytes(item.size)}</span>{item.durationMs ? <span>{fmtClock(item.durationMs / 1000)}</span> : null}<span>{fmtDay(item.modifiedTime)}</span></> : <span>It may have been deleted from Drive</span>}{tag}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5" data-id={id}>{actions}</div>
+    </li>
+  )
+}
 
-  const share = async () => {
-    if (!confirm('This makes the video folder viewable by anyone who has the link (view only). Continue?')) return
-    try {
-      const link = await useVault.getState().shareProject(p.id)
-      toast((await copyText(link)) ? 'Share link copied' : link, 'ok')
-    } catch (err) {
-      toast(`Could not create the link: ${(err as Error).message}`, 'bad')
-    }
-  }
+function FootageTab({ v }: { v: Video }) {
+  const raws = useFiles(v.rawIds)
+  const edits = useFiles(v.editIds)
+  const store = useVault.getState()
+  const playAll = (item: DriveItem, list: (DriveItem | undefined)[]) => usePlayer.getState().play(item, { videoId: v.id, queue: list.filter((x): x is DriveItem => !!x) })
+  const finalVerified = v.finalId !== null && v.verified.includes(v.finalId)
+  const icon = (label: string, onClick: () => void, el: ReactNode, danger?: boolean) => <Button size="sm" icon variant={danger ? 'danger' : 'ghost'} aria-label={label} title={label} onClick={onClick}>{el}</Button>
 
   return (
     <div className="grid gap-4">
-      {p.finalFileId && (
-        <div className={cx('card flex flex-wrap items-center gap-x-4 gap-y-2 p-4', verifiedFinal && 'border-lime/40')}>
-          <BadgeCheck size={20} className={verifiedFinal ? 'text-lime' : 'text-mute'} />
-          <p className="min-w-0 flex-1 text-[14px]">
-            {verifiedFinal ? (
-              <>
-                <b>The final export is in Drive</b> and its size matched your local file. It is safe to free up space on this computer.
-              </>
-            ) : (
-              <>
-                <b>A final export is marked.</b> Slate did not upload it, so it was not size-checked.
-              </>
-            )}
-          </p>
-          <label className="flex cursor-pointer items-center gap-2 text-[13.5px] font-semibold">
-            <input type="checkbox" className="h-4 w-4 accent-[var(--color-lime)]" checked={p.localCleared} onChange={(e) => useVault.getState().patchProject(p.id, { localCleared: e.target.checked })} />
-            I deleted my local copy
-          </label>
-        </div>
-      )}
-
-      <div className="card p-4 md:p-5">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div className="flex flex-1 flex-wrap gap-1.5" role="tablist" aria-label="Folders">
-            {folders.map((f) => (
-              <button key={f.name} type="button" role="tab" aria-selected={f.name === current.name} className={cx('btn btn-sm', f.name === current.name ? 'btn-primary' : 'btn-ghost')} onClick={() => setSel(f.name)}>
-                {f.name}
-              </button>
-            ))}
-            {adding ? (
-              <form onSubmit={addFolder} className="flex items-center gap-1.5">
-                <input className="input h-8 w-40 py-0 text-[13px]" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Folder name" aria-label="New folder name" maxLength={60} onKeyDown={(e) => e.key === 'Escape' && setAdding(false)} />
-                <Button size="sm" type="submit" disabled={!name.trim()}>
-                  Add
-                </Button>
-              </form>
-            ) : (
-              <Button size="sm" variant="ghost" onClick={() => setAdding(true)} title="Add your own folder to this video, for example Music or B-roll">
-                <FolderPlus size={15} /> Folder
-              </Button>
-            )}
+      <section className="card p-5" aria-label="Raw footage">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div><h2 className="display text-[22px]">Raw footage</h2><p className="text-[13px] text-mute">Camera files for this video.</p></div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => useUI.setState({ pick: { videoId: v.id, kind: 'raw' } })}><Library size={15} /> From Library</Button>
+            <Button size="sm" variant="primary" onClick={() => openUpload({ space: 'raw', videoId: v.id, as: 'raw' })}><Upload size={15} /> Upload</Button>
           </div>
-          {p.folderId && (
-            <>
-              <a className="btn btn-sm btn-ghost" href={driveApi().folderUrl(p.folderId)} target="_blank" rel="noreferrer" title="Open this video's folder in Google Drive">
-                <ExternalLink size={15} /> Drive
-              </a>
-              <Button size="sm" variant="ghost" onClick={share} title="Create a view-only link for an editor or collaborator">
-                <Link2 size={15} /> Share
-              </Button>
-            </>
-          )}
         </div>
-        <Files
-          key={current.id || current.name}
-          folderId={current.id || null}
-          resolveFolder={resolveFolder}
-          project={p}
-          canMarkFinal={current.kind === 'edited'}
-          accept={current.kind === 'thumbs' ? 'image/*,.psd,.fig' : current.kind === 'custom' ? undefined : 'video/*,audio/*,.mov,.mp4,.mkv,.mxf,.braw'}
-          hint={FOLDER_HINT[current.kind]}
-        />
-      </div>
+        {v.rawIds.length === 0 ? <p className="rounded-xl border border-dashed border-line2 px-4 py-6 text-center text-[13.5px] text-dim">No raw footage linked yet. Upload it here or pick clips you already put in the Library.</p> : (
+          <ul className="grid gap-1">{v.rawIds.map((id, i) => <FileRow key={id} id={id} item={raws[i]} actions={<>{raws[i] && icon('Play', () => playAll(raws[i]!, raws), <Play size={16} />)}{raws[i] && icon('Download', () => useTransfers.getState().download(raws[i]!), <Download size={16} />)}{icon('Unlink from this video', () => store.unlinkRaw(v.id, id), <Unlink size={16} />, true)}</>} />)}</ul>
+        )}
+      </section>
+
+      <section className="card p-5" aria-label="Edited exports">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div><h2 className="display text-[22px]">Edited exports</h2><p className="text-[13px] text-mute">Every cut of this video. Star the one that gets published.</p></div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => useUI.setState({ pick: { videoId: v.id, kind: 'edit' } })}><Library size={15} /> From Library</Button>
+            <Button size="sm" variant="primary" onClick={() => openUpload({ space: 'edited', videoId: v.id, as: 'final' })}><Upload size={15} /> Upload</Button>
+          </div>
+        </div>
+        {v.editIds.length === 0 ? <p className="rounded-xl border border-dashed border-line2 px-4 py-6 text-center text-[13.5px] text-dim">No edit yet. When you add the export, this video moves to Uploads, ready to schedule.</p> : (
+          <ul className="grid gap-1">
+            {v.editIds.map((id, i) => {
+              const isFinal = v.finalId === id
+              return <FileRow key={id} id={id} item={edits[i]} tag={<>{isFinal && <span className="text-lime">FINAL</span>}{v.verified.includes(id) && <span className="text-lime">size verified</span>}</>} actions={<>
+                {icon(isFinal ? 'This is the final export' : 'Make this the final export', () => store.setFinal(v.id, isFinal ? null : id), <Star size={16} className={cx(isFinal && 'fill-lime text-lime')} />)}
+                {edits[i] && icon('Play', () => playAll(edits[i]!, edits), <Play size={16} />)}
+                {edits[i] && icon('Download', () => useTransfers.getState().download(edits[i]!), <Download size={16} />)}
+                {icon('Unlink from this video', () => store.unlinkEdit(v.id, id), <Unlink size={16} />, true)}</>} />
+            })}
+          </ul>
+        )}
+        {v.finalId && (
+          <label className="mt-3 flex cursor-pointer items-center gap-2.5 rounded-xl bg-coal px-3 py-2.5 text-[13.5px]">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--color-lime)]" checked={v.localCleared} onChange={(e) => store.patchVideo(v.id, { localCleared: e.target.checked })} />
+            <span>{finalVerified ? 'The final is in Drive and its size matched your file, so it is safe to free up this computer.' : 'The final is in Drive.'} <b>I deleted my local copy.</b></span>
+          </label>
+        )}
+      </section>
+
+      {v.legacyFolderId && <a className="btn btn-sm w-fit" href={driveApi().folderUrl(v.legacyFolderId)} target="_blank" rel="noreferrer"><FolderOpen size={15} /> Older files for this video (first version of Slate)</a>}
     </div>
   )
 }
@@ -243,21 +234,13 @@ function parseKit(text: string): Partial<Kit> | null {
     if (!j || typeof j !== 'object' || Array.isArray(j)) return null
     const s = (...keys: string[]) => {
       for (const k of keys) {
-        const v = j[k]
-        if (typeof v === 'string' && v.trim()) return v
-        if (Array.isArray(v) && v.length) return v.join(', ')
+        const x = j[k]
+        if (typeof x === 'string' && x.trim()) return x
+        if (Array.isArray(x) && x.length) return x.join(', ')
       }
       return undefined
     }
-    const out: Partial<Kit> = {
-      title: s('title'),
-      description: s('description', 'desc'),
-      pinnedComment: s('pinnedComment', 'pinned_comment', 'comment', 'firstComment', 'first_comment'),
-      tags: s('tags', 'keywords'),
-      shorts: s('shorts', 'shortsCaption'),
-      reels: s('reels', 'reelsCaption', 'caption'),
-      notes: s('notes'),
-    }
+    const out: Partial<Kit> = { title: s('title'), description: s('description', 'desc'), pinnedComment: s('pinnedComment', 'pinned_comment', 'comment', 'firstComment', 'first_comment'), tags: s('tags', 'keywords'), shorts: s('shorts', 'shortsCaption'), reels: s('reels', 'reelsCaption', 'caption') }
     for (const k of Object.keys(out) as (keyof Kit)[]) if (out[k] === undefined) delete out[k]
     return Object.keys(out).length ? out : null
   } catch {
@@ -265,25 +248,23 @@ function parseKit(text: string): Partial<Kit> | null {
   }
 }
 
-function KitTab({ p }: { p: Project }) {
+function KitTab({ v, thumb }: { v: Video; thumb: DriveItem | undefined }) {
   const templates = useVault((s) => s.db.templates)
   const [importing, setImporting] = useState(false)
   const [raw, setRaw] = useState('')
-  const k = p.kit
-  const set = (v: Partial<Kit>) => useVault.getState().patchKit(p.id, v)
+  const k = v.kit
+  const set = (p: Partial<Kit>) => useVault.getState().patchKit(v.id, p)
   const parsed = useMemo(() => (raw.trim() ? parseKit(raw) : null), [raw])
-
-  const applyTemplate = (id: string) => {
+  const apply = (id: string) => {
     const t = templates.find((x) => x.id === id)
     if (!t) return
     const join = (a: string, b: string) => (a.trim() ? `${a.trimEnd()}\n\n${b}` : b)
-    if (t.kind === 'comment') set({ pinnedComment: join(k.pinnedComment, t.body) })
-    else set({ description: join(k.description, t.body) })
+    set(t.kind === 'comment' ? { pinnedComment: join(k.pinnedComment, t.body) } : { description: join(k.description, t.body) })
     toast(`Added "${t.name}"`)
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+    <div className="grid gap-4 lg:grid-cols-[1fr_290px]">
       <div className="card grid gap-5 p-5 md:p-6">
         <KitField label="Title" value={k.title} onChange={(title) => set({ title })} max={100} placeholder="The title viewers will see" />
         <KitField label="Description" value={k.description} onChange={(description) => set({ description })} max={5000} rows={9} placeholder="What happens, links, hashtags" />
@@ -294,191 +275,92 @@ function KitTab({ p }: { p: Project }) {
           <KitField label="Reels caption" value={k.reels} onChange={(reels) => set({ reels })} max={2200} rows={2} placeholder="For cross-posting to Instagram" />
         </div>
       </div>
-
       <aside className="grid content-start gap-4">
-        <div className="card grid gap-3 p-5">
-          <p className="label">Shortcuts</p>
-          <CopyButton text={kitText(p)} label="Copy whole kit" what="the whole kit" className="w-full" />
-          <Button size="sm" className="w-full" onClick={() => setImporting(true)} title="Paste kit JSON, for example from your editing assistant">
-            <FileJson size={15} /> Import kit
-          </Button>
+        <div className="card p-4">
+          <p className="label mb-3">Thumbnail</p>
+          <div className="mb-3 aspect-video overflow-hidden rounded-xl border border-line bg-coal">{thumb?.thumbnailLink ? <img src={thumb.thumbnailLink} alt="Thumbnail" referrerPolicy="no-referrer" className="h-full w-full object-cover" /> : <p className="grid h-full place-items-center text-[13px] text-dim">No thumbnail yet</p>}</div>
+          <div className="flex gap-2"><Button size="sm" onClick={() => useUI.setState({ pick: { videoId: v.id, kind: 'thumb' } })}><Library size={14} /> Library</Button><Button size="sm" variant="primary" onClick={() => openUpload({ space: 'thumbs', videoId: v.id, as: 'thumb' })}><Upload size={14} /> Upload</Button></div>
         </div>
-        <div className="card p-5">
-          <p className="label mb-3">Templates</p>
-          {templates.length ? (
-            <ul className="grid gap-1.5">
-              {templates.map((t) => (
-                <li key={t.id}>
-                  <button type="button" className="row flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left" onClick={() => applyTemplate(t.id)} title={`Add to the ${t.kind === 'comment' ? 'pinned comment' : 'description'}`}>
-                    <span className="min-w-0">
-                      <span className="block truncate font-semibold">{t.name}</span>
-                      <span className="label">{t.kind}</span>
-                    </span>
-                    <span className="text-[12.5px] font-semibold text-lime">Add</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[13.5px] text-dim">
-              Reusable sign-offs and hashtag sets live in the{' '}
-              <Link to="/app/library" viewTransition className="ulink text-paper">
-                Library
-              </Link>
-              .
-            </p>
-          )}
+        <div className="card grid gap-3 p-4">
+          <p className="label">Shortcuts</p>
+          <CopyButton text={kitText(v)} label="Copy whole kit" what="the whole kit" className="w-full" />
+          <Button size="sm" className="w-full" onClick={() => setImporting(true)}><FileJson size={15} /> Import kit</Button>
+        </div>
+        <div className="card p-4">
+          <p className="label mb-3">Snippets</p>
+          {templates.length ? <ul className="grid gap-1.5">{templates.map((t) => <li key={t.id}><button type="button" className="row flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left" onClick={() => apply(t.id)}><span className="min-w-0"><span className="block truncate font-semibold">{t.name}</span><span className="label">{t.kind}</span></span><span className="text-[12.5px] font-semibold text-lime">Add</span></button></li>)}</ul> : <p className="text-[13.5px] text-dim">Reusable sign-offs and hashtag sets live in Settings.</p>}
         </div>
       </aside>
-
-      <Modal open={importing} onOpenChange={setImporting} title="Import a kit" description='Paste JSON with any of: "title", "description", "comment", "tags", "notes". Fields you leave out are not touched.'>
+      <Modal open={importing} onOpenChange={setImporting} title="Import a kit" description='Paste JSON with any of: "title", "description", "comment", "tags". Fields you leave out are not touched.'>
         <textarea className="input mono min-h-[180px] text-[13px]" value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={'{\n  "title": "…",\n  "description": "…",\n  "comment": "…"\n}'} aria-label="Kit JSON" />
         <p className={cx('mt-2 text-[13px]', raw.trim() && !parsed ? 'text-bad' : 'text-dim')}>{!raw.trim() ? 'Nothing pasted yet.' : parsed ? `Found: ${Object.keys(parsed).join(', ')}.` : 'That is not valid kit JSON.'}</p>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => setImporting(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!parsed}
-            onClick={() => {
-              set(parsed!)
-              setImporting(false)
-              setRaw('')
-              toast('Kit imported')
-            }}
-          >
-            Import
-          </Button>
-        </div>
+        <div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={() => setImporting(false)}>Cancel</Button><Button variant="primary" disabled={!parsed} onClick={() => { set(parsed!); setImporting(false); setRaw(''); toast('Kit imported') }}>Import</Button></div>
       </Modal>
     </div>
   )
 }
 
-// ------------------------------------------------------------------ Publish mode
+// ------------------------------------------------------------------ Publish
 function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: ReactNode }) {
   return (
     <li className={cx('card flex gap-4 p-4 transition-colors duration-300 md:p-5', done && 'border-lime/40')}>
-      <span className={cx('mono grid h-8 w-8 shrink-0 place-items-center rounded-full border text-[13px] font-semibold transition-colors duration-300', done ? 'border-lime bg-lime text-carbon' : 'border-line2 text-mute')}>
-        {done ? <Check size={15} strokeWidth={3} /> : n}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold">{title}</p>
-        <div className="mt-2">{children}</div>
-      </div>
+      <span className={cx('mono grid h-8 w-8 shrink-0 place-items-center rounded-full border text-[13px] font-semibold transition-colors duration-300', done ? 'border-lime bg-lime text-carbon' : 'border-line2 text-mute')}>{done ? <Check size={15} strokeWidth={3} /> : n}</span>
+      <div className="min-w-0 flex-1"><p className="font-semibold">{title}</p><div className="mt-2">{children}</div></div>
     </li>
   )
 }
 
-function PublishTab({ p, goKit, goFiles }: { p: Project; goKit(): void; goFiles(): void }) {
+function PublishTab({ v, final, goKit, goFootage }: { v: Video; final: DriveItem | undefined; goKit(): void; goFootage(): void }) {
   const [done, setDone] = useState<Set<string>>(new Set())
-  const [url, setUrl] = useState(p.youtubeUrl)
-  const edited = p.folders.find((f) => f.kind === 'edited')
-  const files = useVault((s) => (edited ? s.files[edited.id] : undefined))
-  const final = files?.find((f) => f.id === p.finalFileId)
+  const [url, setUrl] = useState(v.youtubeUrl)
   const mark = (k: string) => setDone((d) => new Set(d).add(k))
-  const k = p.kit
+  const k = v.kit
+  const r = readiness(v)
 
-  useEffect(() => {
-    if (edited) void useVault.getState().loadFiles(edited.id)
-  }, [edited])
-
-  const missing = (what: string) => (
-    <p className="text-[13.5px] text-mute">
-      No {what} yet.{' '}
-      <button type="button" className="ulink font-semibold text-paper" onClick={goKit}>
-        Write it in Kit
-      </button>
-    </p>
-  )
+  const missing = (what: string) => <p className="text-[13.5px] text-mute">No {what} yet. <button type="button" className="ulink font-semibold text-paper" onClick={goKit}>Write it in Kit</button></p>
   const preview = (text: string, key: string, what: string) => (
-    <div className="flex items-start gap-3">
-      <p className="line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap rounded-xl bg-coal px-3 py-2 text-[13.5px] text-mute">{text}</p>
-      <CopyButton text={text} label="Copy" what={what} onCopied={() => mark(key)} />
-    </div>
+    <div className="flex items-start gap-3"><p className="line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap rounded-xl bg-coal px-3 py-2 text-[13.5px] text-mute">{text}</p><CopyButton text={text} label="Copy" what={what} onCopied={() => mark(key)} /></div>
   )
-
   const publish = (e: FormEvent) => {
     e.preventDefault()
     if (url.trim() && !ytId(url)) return toast('That does not look like a YouTube link', 'bad')
-    useVault.getState().patchProject(p.id, { status: 'published', youtubeUrl: url.trim() })
+    const s = useVault.getState()
+    s.patchVideo(v.id, { youtubeUrl: url.trim() })
+    s.setStage(v.id, 'published')
     toast('Marked as published')
   }
 
-  if (p.status === 'published')
+  if (v.stage === 'published')
     return (
       <div className="card grid place-items-center gap-5 p-8 text-center md:p-12">
         <span className="stamp">PUBLISHED</span>
-        <div>
-          <p className="display text-[26px]">{k.title || p.title}</p>
-          <p className="mono mt-1.5 text-[12.5px] text-mute">{fmtDay(p.publishedAt, true)}</p>
-        </div>
-        {p.youtubeUrl ? (
-          <a href={p.youtubeUrl} target="_blank" rel="noreferrer" className="btn">
-            <ExternalLink size={16} /> Watch on YouTube
-          </a>
-        ) : (
-          <form onSubmit={publish} className="flex w-full max-w-md gap-2">
-            <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste the YouTube link to see its stats" aria-label="YouTube link" />
-            <Button type="submit" disabled={!url.trim()}>
-              Save
-            </Button>
-          </form>
+        <div><p className="display text-[26px]">{k.title || v.title}</p><p className="mono mt-1.5 text-[12.5px] text-mute">{fmtDay(v.publishDate ?? v.publishedAt, true)}</p></div>
+        {v.youtubeUrl ? <a href={v.youtubeUrl} target="_blank" rel="noreferrer" className="btn"><ExternalLink size={16} /> Watch on YouTube</a> : (
+          <form onSubmit={publish} className="flex w-full max-w-md gap-2"><input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste the YouTube link to see its stats" aria-label="YouTube link" /><Button type="submit" disabled={!url.trim()}>Save</Button></form>
         )}
-        <Stats url={p.youtubeUrl} />
+        <Stats url={v.youtubeUrl} />
         <CopyButton text={k.pinnedComment} label="Copy pinned comment" what="the pinned comment" />
-        <Button size="sm" variant="ghost" onClick={() => useVault.getState().patchProject(p.id, { status: 'ready' })}>
-          Not published after all
-        </Button>
+        <Button size="sm" variant="ghost" onClick={() => useVault.getState().setStage(v.id, v.publishDate ? 'scheduled' : 'ready')}>Not published after all</Button>
       </div>
     )
 
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="display text-[26px]">Publish mode</h2>
-          <p className="mt-1 text-mute">Keep YouTube Studio open in another tab and work down the list.</p>
-        </div>
+        <div><h2 className="display text-[26px]">Publish mode</h2><p className="mt-1 text-mute">Keep YouTube Studio open in another tab and work down the list.</p></div>
         <span className="mono text-[12.5px] text-mute">{done.size} of 5 copied</span>
       </div>
+      {!r.ready && <p className="rounded-2xl border border-tape/40 bg-tape/10 px-4 py-3 text-[13.5px]">Before you post: still missing {r.items.slice(0, 3).filter((c) => !c.ok).map((c) => c.label.toLowerCase()).join(', ')}.</p>}
       <ol className="grid gap-2.5">
         <Step n={1} title="Download the final export" done={done.has('file')}>
-          {final?.webContentLink ? (
-            <a href={final.webContentLink} download={final.name} target="_blank" rel="noreferrer" className="btn btn-sm" onClick={() => mark('file')}>
-              <Download size={15} /> {final.name}
-            </a>
-          ) : final ? (
-            <p className="text-[13.5px] text-mute">{final.name} is a sample file, so there is nothing to download in demo mode.</p>
-          ) : (
-            <p className="text-[13.5px] text-mute">
-              No final export is marked.{' '}
-              <button type="button" className="ulink font-semibold text-paper" onClick={goFiles}>
-                Add one in Files
-              </button>
-            </p>
-          )}
+          {final ? <Button size="sm" onClick={() => { useTransfers.getState().download(final); mark('file') }}><Download size={15} /> {final.name} · {fmtBytes(final.size)}</Button> : <p className="text-[13.5px] text-mute">No final export is marked. <button type="button" className="ulink font-semibold text-paper" onClick={goFootage}>Add one in Footage</button></p>}
         </Step>
-        <Step n={2} title="Title" done={done.has('title')}>
-          {k.title.trim() ? preview(k.title, 'title', 'the title') : missing('title')}
-        </Step>
-        <Step n={3} title="Description" done={done.has('description')}>
-          {k.description.trim() ? preview(k.description, 'description', 'the description') : missing('description')}
-        </Step>
-        <Step n={4} title="Tags" done={done.has('tags')}>
-          {k.tags.trim() ? preview(k.tags, 'tags', 'the tags') : <p className="text-[13.5px] text-dim">No tags. They are optional.</p>}
-        </Step>
-        <Step n={5} title="Pinned comment (after it is live)" done={done.has('comment')}>
-          {k.pinnedComment.trim() ? preview(k.pinnedComment, 'comment', 'the pinned comment') : missing('pinned comment')}
-        </Step>
+        <Step n={2} title="Title" done={done.has('title')}>{k.title.trim() ? preview(k.title, 'title', 'the title') : missing('title')}</Step>
+        <Step n={3} title="Description" done={done.has('description')}>{k.description.trim() ? preview(k.description, 'description', 'the description') : missing('description')}</Step>
+        <Step n={4} title="Tags" done={done.has('tags')}>{k.tags.trim() ? preview(k.tags, 'tags', 'the tags') : <p className="text-[13.5px] text-dim">No tags. They are optional.</p>}</Step>
+        <Step n={5} title="Pinned comment (after it is live)" done={done.has('comment')}>{k.pinnedComment.trim() ? preview(k.pinnedComment, 'comment', 'the pinned comment') : missing('pinned comment')}</Step>
         <Step n={6} title="Paste the link and close it out" done={false}>
-          <form onSubmit={publish} className="flex flex-wrap gap-2">
-            <input className="input min-w-0 flex-1" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://youtube.com/shorts/… (optional)" aria-label="YouTube link" />
-            <Button variant="primary" type="submit">
-              Mark as published
-            </Button>
-          </form>
+          <form onSubmit={publish} className="flex flex-wrap gap-2"><input className="input min-w-0 flex-1" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://youtube.com/shorts/… (optional)" aria-label="YouTube link" /><Button variant="primary" type="submit">Mark as published</Button></form>
         </Step>
       </ol>
     </div>
@@ -491,7 +373,6 @@ function Stats({ url }: { url: string }) {
   const mode = useVault((s) => s.mode)
   const id = ytId(url)
   const [st, setSt] = useState<StatState>({ s: 'idle' })
-
   useEffect(() => {
     if (!id || mode !== 'google') return
     let live = true
@@ -505,75 +386,37 @@ function Stats({ url }: { url: string }) {
         setSt({ s: 'ok', views: j.views, likes: j.likes, comments: j.comments })
       })
       .catch(() => live && setSt({ s: 'error' }))
-    return () => {
-      live = false
-    }
+    return () => { live = false }
   }, [id, mode])
-
   if (!id) return null
   if (mode === 'demo') return <p className="text-[13px] text-dim">Live YouTube stats appear here when you use your own account.</p>
   if (st.s === 'loading' || st.s === 'idle') return <div className="skeleton h-16 w-full max-w-md" />
   if (st.s === 'nokey') return <p className="text-[13px] text-dim">Stats are off: the server has no YouTube API key (optional, free).</p>
   if (st.s !== 'ok') return <p className="text-[13px] text-dim">Could not load stats for this video.</p>
-  const cell = (icon: ReactNode, n: number | null, label: string) => (
-    <div className="rounded-2xl border border-line bg-coal px-5 py-3">
-      <p className="display flex items-center justify-center gap-2 text-[24px]">
-        {icon} {n === null ? 'hidden' : n.toLocaleString()}
-      </p>
-      <p className="label mt-1">{label}</p>
-    </div>
-  )
-  return (
-    <div className="grid w-full max-w-md grid-cols-3 gap-2.5">
-      {cell(<Eye size={17} className="text-mute" />, st.views, 'Views')}
-      {cell(<ThumbsUp size={17} className="text-mute" />, st.likes, 'Likes')}
-      {cell(<MessageSquare size={17} className="text-mute" />, st.comments, 'Comments')}
-    </div>
-  )
+  const cell = (icon: ReactNode, n: number | null, label: string) => <div className="rounded-2xl border border-line bg-coal px-5 py-3"><p className="display flex items-center justify-center gap-2 text-[24px]">{icon} {n === null ? 'hidden' : n.toLocaleString()}</p><p className="label mt-1">{label}</p></div>
+  return <div className="grid w-full max-w-md grid-cols-3 gap-2.5">{cell(<Eye size={17} className="text-mute" />, st.views, 'Views')}{cell(<ThumbsUp size={17} className="text-mute" />, st.likes, 'Likes')}{cell(<MessageSquare size={17} className="text-mute" />, st.comments, 'Comments')}</div>
 }
 
 // ------------------------------------------------------------------ Notes
-function NotesTab({ p }: { p: Project }) {
-  const nav = useNavigate()
-  const remove = async () => {
-    const where = p.folderId ? ' Its folder moves to your Drive trash, where you can restore it for 30 days.' : ''
-    if (!confirm(`Delete "${p.title}" from Slate?${where}`)) return
-    try {
-      await useVault.getState().removeProject(p.id)
-      toast('Video deleted')
-      nav('/app/videos', { viewTransition: true })
-    } catch (e) {
-      toast(`Could not delete: ${(e as Error).message}`, 'bad')
-    }
-  }
+function NotesTab({ v, final, onDelete }: { v: Video; final: DriveItem | undefined; onDelete(): void }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-      <div className="card p-5 md:p-6">
-        <label htmlFor="vd-notes" className="label mb-1.5 block">
-          Notes for this video
-        </label>
-        <textarea id="vd-notes" className="input min-h-[280px]" value={p.kit.notes} onChange={(e) => useVault.getState().patchKit(p.id, { notes: e.target.value })} placeholder="Hook ideas, shot list, what to fix in the next cut, feedback from friends…" />
-        <p className="mt-2 text-[12.5px] text-dim">Saved automatically. A readable copy of the kit and notes is kept beside the footage in Drive.</p>
+    <div className="grid gap-4 lg:grid-cols-[1fr_290px]">
+      <div className="grid gap-4">
+        <div className="card p-5 md:p-6">
+          <label htmlFor="vd-notes" className="label mb-1.5 block">Notes for this video</label>
+          <textarea id="vd-notes" className="input min-h-[220px]" value={v.notes} onChange={(e) => useVault.getState().patchVideo(v.id, { notes: e.target.value })} placeholder="Feedback, ideas for the next cut, things to remember…" />
+          <p className="mt-2 text-[12.5px] text-dim">Saved automatically.</p>
+        </div>
+        <div className="card p-5 md:p-6">
+          <div className="mb-3 flex items-center justify-between gap-3"><h2 className="display text-[22px]">Review notes</h2>{final && <Button size="sm" onClick={() => usePlayer.getState().play(final, { videoId: v.id })}><Play size={14} /> Review in player</Button>}</div>
+          {v.markers.length === 0 ? <p className="text-[13.5px] text-dim">No timestamped notes. Open the final in the player and press <b>N</b> on a frame to pin a note to that second.</p> : (
+            <ul className="grid gap-1">{v.markers.map((m) => <li key={m.id} className="row flex items-start gap-3 rounded-xl px-3 py-2.5"><span className="mono rounded-md bg-lime px-1.5 py-0.5 text-[12px] font-bold text-carbon">{fmtClock(m.t)}</span><p className="min-w-0 flex-1 whitespace-pre-wrap text-[14px]">{m.text}</p><button type="button" className="text-dim hover:text-bad" aria-label="Delete note" onClick={() => useVault.getState().removeMarker(v.id, m.id)}><Trash2 size={15} /></button></li>)}</ul>
+          )}
+        </div>
       </div>
       <aside className="grid content-start gap-4">
-        <div className="card grid gap-2.5 p-5 text-[13.5px]">
-          <p className="label">Details</p>
-          <p className="flex justify-between gap-3">
-            <span className="text-mute">Stage</span> <StatusPill status={p.status} />
-          </p>
-          <p className="flex justify-between gap-3">
-            <span className="text-mute">Created</span> <span className="mono">{fmtDay(p.createdAt, true)}</span>
-          </p>
-          <p className="flex justify-between gap-3">
-            <span className="text-mute">Last change</span> <span className="mono">{fmtDay(p.updatedAt, true)}</span>
-          </p>
-        </div>
-        <div className="card p-5">
-          <p className="label mb-3">Remove</p>
-          <Button variant="danger" size="sm" className="w-full" onClick={remove}>
-            <Trash2 size={15} /> Delete this video
-          </Button>
-        </div>
+        <div className="card grid gap-2.5 p-5 text-[13.5px]"><p className="label">Details</p><p className="flex justify-between gap-3"><span className="text-mute">Stage</span> <StagePill stage={v.stage} /></p><p className="flex justify-between gap-3"><span className="text-mute">Created</span> <span className="mono">{fmtDay(v.createdAt, true)}</span></p><p className="flex justify-between gap-3"><span className="text-mute">Last change</span> <span className="mono">{fmtDay(v.updatedAt, true)}</span></p></div>
+        <div className="card p-5"><p className="label mb-3">Remove</p><Button variant="danger" size="sm" className="w-full" onClick={() => confirm(`Delete "${v.title}" from Slate? Its files stay in your Library.`) && onDelete()}><Trash2 size={15} /> Delete this video</Button></div>
       </aside>
     </div>
   )

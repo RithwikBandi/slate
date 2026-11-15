@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Project } from './types'
+import type { DriveItem, Video } from './types'
 
 export const uid = (prefix = 'p') =>
   `${prefix}_${Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('')}`
@@ -13,6 +13,20 @@ export function fmtBytes(n: number): string {
   const v = n / 1024 ** i
   return `${v >= 100 || i < 2 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
+
+export const fmtSpeed = (bps: number) => (bps > 0 ? `${fmtBytes(bps)}/s` : '')
+
+/** 83 -> "1:23", 3723 -> "1:02:03" */
+export function fmtClock(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) sec = 0
+  const s = Math.floor(sec % 60)
+  const m = Math.floor((sec / 60) % 60)
+  const h = Math.floor(sec / 3600)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+}
+
+export const fmtEta = (sec: number) => (!Number.isFinite(sec) || sec <= 0 ? '' : sec < 60 ? `${Math.ceil(sec)}s left` : sec < 3600 ? `${Math.ceil(sec / 60)} min left` : `${(sec / 3600).toFixed(1)} h left`)
 
 export const isoDay = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -43,10 +57,30 @@ export function relDay(iso: string | null): string {
   return n > 0 ? `In ${n} days` : `${-n} days ago`
 }
 
+export function timeAgo(iso: string): string {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
+  if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`
+  return fmtDay(iso, true)
+}
+
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+export const wordCount = (t: string) => (t.trim() ? t.trim().split(/\s+/).length : 0)
+export const readMinutes = (t: string) => wordCount(t) / 150 // spoken pace, words per minute
+
 export function ytId(url: string): string | null {
   const m = /(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/.exec(url.trim())
   return m ? m[1] : null
 }
+
+export const stripExt = (name: string) => name.replace(/\.[^./]+$/, '')
+export const isVideoItem = (i: DriveItem) => i.kind === 'file' && (i.mimeType.startsWith('video/') || /\.(mp4|mov|m4v|mkv|webm|avi|mxf)$/i.test(i.name))
+export const isImageItem = (i: DriveItem) => i.kind === 'file' && i.mimeType.startsWith('image/')
+
+/** Guess whether a dropped file is a finished export or camera footage, from its name. */
+export const guessEdited = (name: string) => /(final|export|master|render|edit|cut|v\d+|publish)/i.test(name)
 
 export async function copyText(text: string): Promise<boolean> {
   try {
@@ -57,36 +91,37 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function downloadText(name: string, text: string, type = 'application/json') {
-  const url = URL.createObjectURL(new Blob([text], { type }))
+export function saveBlob(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob)
   const a = Object.assign(document.createElement('a'), { href: url, download: name })
+  document.body.append(a)
   a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 2000)
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
-/** Plain-text version of a publish kit: what gets written next to the footage in Drive. */
-export function kitText(p: Project): string {
-  const k = p.kit
+export const downloadText = (name: string, text: string, type = 'application/json') => saveBlob(name, new Blob([text], { type }))
+
+/** Plain-text version of a publish kit, used by "Copy whole kit". */
+export function kitText(v: Video): string {
+  const k = v.kit
   const block = (label: string, body: string) => (body.trim() ? `${label}\n${'-'.repeat(label.length)}\n${body.trim()}\n\n` : '')
   return (
-    `${p.title}\n${'='.repeat(Math.max(4, p.title.length))}\n` +
-    `Status: ${p.status}${p.series ? `  |  Series: ${p.series}${p.episode ? ` #${p.episode}` : ''}` : ''}` +
-    `${p.publishDate ? `  |  Publish: ${p.publishDate}` : ''}${p.youtubeUrl ? `\nLink: ${p.youtubeUrl}` : ''}\n\n` +
+    `${v.title}\n${'='.repeat(Math.max(4, v.title.length))}\n` +
+    `${v.series ? `Series: ${v.series}${v.episode ? ` #${v.episode}` : ''}  |  ` : ''}Stage: ${v.stage}${v.publishDate ? `  |  Publish: ${v.publishDate}` : ''}${v.youtubeUrl ? `\nLink: ${v.youtubeUrl}` : ''}\n\n` +
     block('TITLE', k.title) +
     block('DESCRIPTION', k.description) +
     block('TAGS', k.tags) +
     block('PINNED COMMENT', k.pinnedComment) +
     block('SHORTS CAPTION', k.shorts) +
     block('REELS CAPTION', k.reels) +
-    block('NOTES', k.notes)
+    block('NOTES', v.notes)
   )
 }
 
 /** Consecutive days (ending today or yesterday) with at least one published video. */
-export function streak(projects: Project[]): number {
-  const days = new Set(
-    projects.filter((p) => p.status === 'published').map((p) => p.publishDate ?? (p.publishedAt ? isoDay(new Date(p.publishedAt)) : '')),
-  )
+export function streak(videos: Video[]): number {
+  const days = new Set(videos.filter((v) => v.stage === 'published').map((v) => v.publishDate ?? (v.publishedAt ? isoDay(new Date(v.publishedAt)) : '')))
   let day = today()
   if (!days.has(day)) day = addDays(day, -1)
   let n = 0
@@ -97,15 +132,27 @@ export function streak(projects: Project[]): number {
   return n
 }
 
+export function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number) {
+  let t: ReturnType<typeof setTimeout> | undefined
+  const d = (...a: A) => {
+    clearTimeout(t)
+    t = setTimeout(() => fn(...a), ms)
+  }
+  d.cancel = () => clearTimeout(t)
+  return d
+}
+
 // ---- toasts (tiny global store so non-React code can report outcomes) ----
 export interface Toast {
   id: string
   msg: string
   kind: 'ok' | 'bad' | 'info'
+  action?: { label: string; run(): void }
 }
 export const useToasts = create<{ list: Toast[] }>(() => ({ list: [] }))
-export function toast(msg: string, kind: Toast['kind'] = 'ok') {
+export function toast(msg: string, kind: Toast['kind'] = 'ok', action?: Toast['action']) {
   const id = uid('t')
-  useToasts.setState((s) => ({ list: [...s.list.slice(-3), { id, msg, kind }] }))
-  setTimeout(() => useToasts.setState((s) => ({ list: s.list.filter((t) => t.id !== id) })), kind === 'bad' ? 6000 : 3200)
+  useToasts.setState((s) => ({ list: [...s.list.slice(-3), { id, msg, kind, action }] }))
+  setTimeout(() => useToasts.setState((s) => ({ list: s.list.filter((t) => t.id !== id) })), action ? 8000 : kind === 'bad' ? 6500 : 3200)
 }
+export const dismissToast = (id: string) => useToasts.setState((s) => ({ list: s.list.filter((t) => t.id !== id) }))

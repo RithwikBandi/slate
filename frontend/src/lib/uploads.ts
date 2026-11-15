@@ -1,96 +1,172 @@
 import { create } from 'zustand'
-import type { UploadSession } from './types'
+import { useUI } from './flow'
+import type { DriveItem, SpaceId, UploadSession } from './types'
 import { toast, uid } from './util'
 import { driveApi, useVault } from './vault'
 
-export interface UploadItem {
+export type TransferState = 'queued' | 'starting' | 'active' | 'paused' | 'done' | 'error'
+
+export interface Transfer {
   id: string
-  file: File
+  dir: 'up' | 'down'
   name: string
   size: number
   sent: number
-  state: 'queued' | 'uploading' | 'paused' | 'done' | 'error'
+  state: TransferState
   error: string
-  folderId: string
-  projectId: string | null
+  startedAt: number
+  speed: number // bytes per second, smoothed
+  lastT: number
+  lastB: number
+  batch: string
+  space?: SpaceId
+  folderId?: string
+  attach?: { videoId: string; as: 'raw' | 'final' | 'thumb' }
+  file?: File
   session: UploadSession
+  item?: DriveItem
 }
 
-interface UploadState {
-  items: UploadItem[]
-  add(files: File[], folderId: string, projectId: string | null): void
+interface TransferState_ {
+  items: Transfer[]
+  open: boolean
+  setOpen(open: boolean): void
+  upload(files: File[], target: { space: SpaceId; folderId: string; attach?: Transfer['attach'] }): void
+  download(item: DriveItem): void
   pause(id: string): void
   resume(id: string): void
   cancel(id: string): void
   clearDone(): void
 }
 
-const MAX_PARALLEL = 2
+const MAX_UPLOADS = 3
 const controllers = new Map<string, AbortController>()
+const batches = new Map<string, { total: number; done: number; names: string[]; last?: DriveItem; space?: SpaceId }>()
 
-export const useUploads = create<UploadState>((set, get) => {
-  const patch = (id: string, p: Partial<UploadItem>) => set((s) => ({ items: s.items.map((i) => (i.id === id ? { ...i, ...p } : i)) }))
+export const useTransfers = create<TransferState_>((set, get) => {
+  const patch = (id: string, p: Partial<Transfer>) => set((s) => ({ items: s.items.map((i) => (i.id === id ? { ...i, ...p } : i)) }))
+
+  function progress(id: string, sent: number) {
+    const t = get().items.find((i) => i.id === id)
+    if (!t) return
+    const now = performance.now()
+    let { speed, lastT, lastB } = t
+    if (now - lastT > 500) {
+      const inst = ((sent - lastB) / (now - lastT)) * 1000
+      speed = speed ? speed * 0.7 + inst * 0.3 : inst
+      lastT = now
+      lastB = sent
+    }
+    patch(id, { sent, speed, lastT, lastB, state: 'active' })
+  }
 
   function pump() {
-    const { items } = get()
-    let running = items.filter((i) => i.state === 'uploading').length
-    for (const item of items) {
-      if (running >= MAX_PARALLEL) break
-      if (item.state !== 'queued') continue
+    const items = get().items.filter((i) => i.dir === 'up')
+    let running = items.filter((i) => i.state === 'starting' || i.state === 'active').length
+    for (const t of items) {
+      if (running >= MAX_UPLOADS) break
+      if (t.state !== 'queued') continue
       running++
-      void run(item)
+      void runUp(t)
     }
   }
 
-  async function run(item: UploadItem) {
+  async function runUp(t: Transfer) {
     const ctrl = new AbortController()
-    controllers.set(item.id, ctrl)
-    patch(item.id, { state: 'uploading', error: '' })
+    controllers.set(t.id, ctrl)
+    patch(t.id, { state: 'starting', error: '', startedAt: Date.now(), lastT: performance.now(), lastB: t.session.offset })
     try {
-      const file = await driveApi().upload(item.file, item.folderId, {
-        signal: ctrl.signal,
-        session: item.session,
-        onProgress: (sent) => patch(item.id, { sent }),
-      })
-      patch(item.id, { state: 'done', sent: item.size })
-      useVault.getState().uploaded(item.folderId, item.projectId, file, item.size)
-      toast(`Uploaded ${item.name}`)
+      const item = await driveApi().upload(t.file!, t.folderId!, { signal: ctrl.signal, session: t.session, onProgress: (sent) => progress(t.id, sent) })
+      patch(t.id, { state: 'done', sent: t.size, item, speed: 0 })
+      afterUpload(t, item)
     } catch (e) {
       const aborted = (e as Error).name === 'AbortError'
-      const still = get().items.find((i) => i.id === item.id)
-      if (!aborted && still) patch(item.id, { state: 'error', error: (e as Error).message })
+      if (!aborted && get().items.some((i) => i.id === t.id)) patch(t.id, { state: 'error', error: (e as Error).message, speed: 0 })
     } finally {
-      controllers.delete(item.id)
+      controllers.delete(t.id)
       pump()
     }
+  }
+
+  function afterUpload(t: Transfer, item: DriveItem) {
+    const vault = useVault.getState()
+    vault.addItem(item)
+    void vault.refreshQuota()
+    if (t.attach) {
+      const { videoId, as } = t.attach
+      if (as === 'raw') vault.linkRaw(videoId, item.id)
+      else if (as === 'final') {
+        vault.linkEdit(videoId, item.id, { final: true })
+        if (item.size === t.size) vault.markVerified(videoId, item.id)
+      } else vault.patchVideo(videoId, { thumbId: item.id })
+    }
+    const b = batches.get(t.batch)
+    if (!b) return
+    b.done++
+    b.names.push(item.name)
+    b.last = item
+    if (b.done < b.total) return
+    batches.delete(t.batch)
+    const where = b.space === 'raw' ? 'Raw footage' : b.space === 'edited' ? 'Edited' : 'Thumbnails'
+    if (b.total === 1) {
+      if (t.attach) toast(`Added "${item.name}" to the video`)
+      else if (b.space === 'edited') toast(`Uploaded "${item.name}"`, 'ok', { label: 'Send to Uploads', run: () => useUI.setState({ sendTo: item }) })
+      else if (b.space === 'raw') toast(`Uploaded "${item.name}"`, 'ok', { label: 'Link to a video', run: () => useUI.setState({ linkRaw: item }) })
+      else toast(`Uploaded "${item.name}"`)
+    } else toast(`Uploaded ${b.total} files to ${where}`)
   }
 
   return {
     items: [],
+    open: false,
+    setOpen: (open) => set({ open }),
 
-    add(files, folderId, projectId) {
-      const fresh = files.map<UploadItem>((file) => ({
-        id: uid('u'),
-        file,
-        name: file.name,
-        size: file.size,
-        sent: 0,
-        state: 'queued',
-        error: '',
-        folderId,
-        projectId,
-        session: { offset: 0 },
+    upload(files, target) {
+      const batch = uid('b')
+      batches.set(batch, { total: files.length, done: 0, names: [], space: target.space })
+      const fresh = files.map<Transfer>((file) => ({
+        id: uid('u'), dir: 'up', name: file.name, size: file.size, sent: 0, state: 'queued', error: '', startedAt: 0, speed: 0, lastT: 0, lastB: 0,
+        batch, space: target.space, folderId: target.folderId, attach: target.attach, file, session: { offset: 0 },
       }))
-      set((s) => ({ items: [...s.items, ...fresh] }))
+      // The tray opens the instant files are chosen, before any network call.
+      set((s) => ({ items: [...s.items, ...fresh], open: true }))
       pump()
     },
 
+    download(item) {
+      const t: Transfer = { id: uid('d'), dir: 'down', name: item.name, size: item.size, sent: 0, state: 'starting', error: '', startedAt: Date.now(), speed: 0, lastT: performance.now(), lastB: 0, batch: '', session: { offset: 0 }, item }
+      set((s) => ({ items: [...s.items, t], open: true }))
+      const ctrl = new AbortController()
+      controllers.set(t.id, ctrl)
+      // Not queued: the browser's save-file prompt must start inside the click that asked for it.
+      void (async () => {
+        try {
+          await driveApi().download(item, { signal: ctrl.signal, onProgress: (sent, total) => { patch(t.id, { size: total || item.size }); progress(t.id, sent) } })
+          patch(t.id, { state: 'done', sent: get().items.find((i) => i.id === t.id)?.size ?? item.size, speed: 0 })
+          toast(`Downloaded "${item.name}"`)
+        } catch (e) {
+          const aborted = (e as Error).name === 'AbortError'
+          if (aborted) set((s) => ({ items: s.items.filter((i) => i.id !== t.id) }))
+          else patch(t.id, { state: 'error', error: (e as Error).message, speed: 0 })
+        } finally {
+          controllers.delete(t.id)
+        }
+      })()
+    },
+
     pause(id) {
-      patch(id, { state: 'paused' })
+      patch(id, { state: 'paused', speed: 0 })
       controllers.get(id)?.abort()
     },
 
     resume(id) {
+      const t = get().items.find((i) => i.id === id)
+      if (!t) return
+      if (t.dir === 'down' && t.item) {
+        set((s) => ({ items: s.items.filter((i) => i.id !== id) }))
+        get().download(t.item)
+        return
+      }
       patch(id, { state: 'queued', error: '' })
       pump()
     },
@@ -98,6 +174,7 @@ export const useUploads = create<UploadState>((set, get) => {
     cancel(id) {
       set((s) => ({ items: s.items.filter((i) => i.id !== id) }))
       controllers.get(id)?.abort()
+      pump()
     },
 
     clearDone() {
@@ -106,9 +183,9 @@ export const useUploads = create<UploadState>((set, get) => {
   }
 })
 
-// Closing the tab would abandon in-flight uploads, so ask first.
+// Closing the tab would abandon in-flight transfers, so ask first.
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', (e) => {
-    if (useUploads.getState().items.some((i) => i.state === 'uploading' || i.state === 'queued')) e.preventDefault()
+    if (useTransfers.getState().items.some((i) => i.state === 'starting' || i.state === 'active' || i.state === 'queued')) e.preventDefault()
   })
 }

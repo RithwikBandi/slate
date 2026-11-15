@@ -1,11 +1,13 @@
 import { getToken } from './auth'
-import { Conflict, type Db, type DriveAPI, type DriveFile, type UploadHooks } from './types'
+import { saveBlob } from './util'
+import { Conflict, type Db, type DriveAPI, type DriveItem, type DownloadHooks, type Permission, type UploadHooks } from './types'
 
 const API = 'https://www.googleapis.com/drive/v3'
 const UP = 'https://www.googleapis.com/upload/drive/v3'
 const FOLDER = 'application/vnd.google-apps.folder'
-const FILE_FIELDS = 'id,name,size,mimeType,createdTime,thumbnailLink,webViewLink,webContentLink'
+const ITEM_FIELDS = 'id,name,mimeType,size,createdTime,modifiedTime,parents,thumbnailLink,webViewLink,videoMediaMetadata(durationMillis,width,height)'
 const CHUNK = 8 * 1024 * 1024 // must be a multiple of 256 KiB
+const MB = 1024 * 1024
 
 export class DriveError extends Error {
   constructor(
@@ -47,15 +49,20 @@ function multipart(meta: object, body: string, type: string) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const toFile = (f: any): DriveFile => ({
+const toItem = (f: any): DriveItem => ({
   id: f.id,
   name: f.name,
-  size: Number(f.size ?? 0),
+  kind: f.mimeType === FOLDER ? 'folder' : 'file',
   mimeType: f.mimeType ?? '',
+  size: Number(f.size ?? 0),
   createdTime: f.createdTime ?? new Date().toISOString(),
+  modifiedTime: f.modifiedTime ?? f.createdTime ?? new Date().toISOString(),
+  parent: f.parents?.[0] ?? null,
   thumbnailLink: f.thumbnailLink,
   webViewLink: f.webViewLink,
-  webContentLink: f.webContentLink,
+  durationMs: f.videoMediaMetadata?.durationMillis ? Number(f.videoMediaMetadata.durationMillis) : undefined,
+  width: f.videoMediaMetadata?.width,
+  height: f.videoMediaMetadata?.height,
 })
 
 type ChunkResult = { done: true; id: string } | { done: false; next: number }
@@ -107,35 +114,57 @@ export function googleDrive(): DriveAPI {
   let dbId = ''
 
   async function mkFolder(name: string, parentId: string | null, appProperties?: Record<string, string>) {
-    const res = await g('/files?fields=id', {
+    const res = await g(`/files?fields=${enc(ITEM_FIELDS)}`, {
       method: 'POST',
       headers: json,
       body: JSON.stringify({ name, mimeType: FOLDER, ...(parentId ? { parents: [parentId] } : {}), ...(appProperties ? { appProperties } : {}) }),
     })
-    return (await res.json()).id as string
+    return toItem(await res.json())
+  }
+
+  async function readDb(id: string) {
+    const [meta, db] = await Promise.all([g(`/files/${id}?fields=id,version,trashed`).then((r) => r.json()), g(`/files/${id}?alt=media`).then((r) => r.json())])
+    if (meta.trashed) throw new DriveError(404, 'trashed')
+    return { db, rev: String(meta.version) }
   }
 
   return {
     kind: 'google',
 
-    async open(empty: Db) {
-      const rootQ = `mimeType='${FOLDER}' and trashed=false and appProperties has { key='slate' and value='root' }`
-      const found = await (await g(`/files?q=${enc(rootQ)}&fields=files(id)&pageSize=1`)).json()
-      rootId = found.files?.[0]?.id ?? (await mkFolder('Slate', null, { slate: 'root' }))
-
-      const dbQ = `'${rootId}' in parents and name='slate.db.json' and trashed=false`
-      const dbs = await (await g(`/files?q=${enc(dbQ)}&fields=files(id,version)&pageSize=1`)).json()
-      if (dbs.files?.[0]) {
-        dbId = dbs.files[0].id
-        const db = (await (await g(`/files/${dbId}?alt=media`)).json()) as Db
-        return { rootId, db, rev: String(dbs.files[0].version) }
+    async open(empty: Db, hint) {
+      // Fast path: ids from the last visit. Two parallel requests, no searching.
+      if (hint?.dbId && hint.rootId) {
+        try {
+          const { db, rev } = await readDb(hint.dbId)
+          rootId = hint.rootId
+          dbId = hint.dbId
+          return { rootId, dbId, db, rev }
+        } catch {
+          /* stale ids: fall through to the lookup */
+        }
       }
-      const mp = multipart({ name: 'slate.db.json', parents: [rootId] }, JSON.stringify(empty), 'application/json')
-      const made = await (
-        await g(`${UP}/files?uploadType=multipart&fields=id,version`, { method: 'POST', headers: { 'Content-Type': mp.type }, body: mp.body })
-      ).json()
+      // One query finds the vault folder and the database file (both are tagged).
+      const q = `trashed=false and (appProperties has { key='slate' and value='root' } or appProperties has { key='slate' and value='db' })`
+      const found = (await (await g(`/files?q=${enc(q)}&fields=files(id,mimeType,version,parents,appProperties)&pageSize=20`)).json()).files ?? []
+      const root = found.find((f: { mimeType: string; appProperties?: { slate?: string } }) => f.mimeType === FOLDER && f.appProperties?.slate === 'root')
+      rootId = root?.id ?? (await mkFolder('Slate', null, { slate: 'root' })).id
+
+      let dbFile = found.find((f: { appProperties?: { slate?: string }; parents?: string[] }) => f.appProperties?.slate === 'db' && f.parents?.includes(rootId))
+      if (!dbFile) {
+        // A database from before files were tagged.
+        const dbQ = `'${rootId}' in parents and name='slate.db.json' and trashed=false`
+        dbFile = (await (await g(`/files?q=${enc(dbQ)}&fields=files(id,version)&pageSize=1`)).json()).files?.[0]
+        if (dbFile) void g(`/files/${dbFile.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ appProperties: { slate: 'db' } }) }).catch(() => {})
+      }
+      if (dbFile) {
+        dbId = dbFile.id
+        const db = await (await g(`/files/${dbId}?alt=media`)).json()
+        return { rootId, dbId, db, rev: String(dbFile.version) }
+      }
+      const mp = multipart({ name: 'slate.db.json', parents: [rootId], appProperties: { slate: 'db' } }, JSON.stringify(empty), 'application/json')
+      const made = await (await g(`${UP}/files?uploadType=multipart&fields=id,version`, { method: 'POST', headers: { 'Content-Type': mp.type }, body: mp.body })).json()
       dbId = made.id
-      return { rootId, db: empty, rev: String(made.version) }
+      return { rootId, dbId, db: empty, rev: String(made.version) }
     },
 
     async saveDb(db, rev) {
@@ -147,15 +176,33 @@ export function googleDrive(): DriveAPI {
 
     createFolder: (name, parentId) => mkFolder(name, parentId),
 
-    async listFiles(folderId) {
-      const q = `'${folderId}' in parents and trashed=false and mimeType!='${FOLDER}'`
-      const res = await g(`/files?q=${enc(q)}&fields=files(${FILE_FIELDS})&orderBy=createdTime desc&pageSize=200`)
-      return ((await res.json()).files ?? []).map(toFile).filter((f: DriveFile) => f.name !== 'Publish kit.txt')
+    async list(folderId, pageToken) {
+      const q = `'${folderId}' in parents and trashed=false`
+      const res = await g(`/files?q=${enc(q)}&fields=${enc(`nextPageToken,files(${ITEM_FIELDS})`)}&orderBy=${enc('folder,name_natural')}&pageSize=100${pageToken ? `&pageToken=${enc(pageToken)}` : ''}`)
+      const j = await res.json()
+      return { items: (j.files ?? []).map(toItem), next: j.nextPageToken }
+    },
+
+    async search(query) {
+      const q = `name contains '${lit(query)}' and trashed=false`
+      const res = await g(`/files?q=${enc(q)}&fields=${enc(`files(${ITEM_FIELDS})`)}&pageSize=40&orderBy=${enc('modifiedTime desc')}`)
+      return ((await res.json()).files ?? []).map(toItem).filter((i: DriveItem) => !i.name.startsWith('slate.db'))
+    },
+
+    async get(id) {
+      try {
+        const res = await g(`/files/${id}?fields=${enc(`${ITEM_FIELDS},trashed`)}`)
+        const f = await res.json()
+        return f.trashed ? null : toItem(f)
+      } catch (e) {
+        if (e instanceof DriveError && e.status === 404) return null
+        throw e
+      }
     },
 
     async upload(file, folderId, h) {
       const s = h.session
-      const finish = async (id: string) => toFile(await (await g(`/files/${id}?fields=${FILE_FIELDS}`)).json())
+      const finish = async (id: string) => toItem(await (await g(`/files/${id}?fields=${enc(ITEM_FIELDS)}`)).json())
 
       if (!s.url) {
         const meta = { name: file.name, parents: [folderId] }
@@ -167,7 +214,7 @@ export function googleDrive(): DriveAPI {
         })
         s.url = res.headers.get('Location') ?? undefined
         if (!s.url) {
-          // Browser could not read the session URL (CORS). Let the auth server start the session instead;
+          // The browser could not read the session URL (CORS). Let the sign-in functions start the session;
           // the file bytes still go straight from this browser to Google.
           const r = await fetch('/api/drive/init', {
             method: 'POST',
@@ -193,12 +240,16 @@ export function googleDrive(): DriveAPI {
       }
     },
 
-    async trash(id) {
-      await g(`/files/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ trashed: true }) })
+    async move(id, fromId, toId) {
+      await g(`/files/${id}?addParents=${enc(toId)}&removeParents=${enc(fromId)}&fields=id`, { method: 'PATCH', headers: json, body: '{}' })
     },
 
     async rename(id, name) {
       await g(`/files/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ name }) })
+    },
+
+    async trash(id) {
+      await g(`/files/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ trashed: true }) })
     },
 
     async quota() {
@@ -206,9 +257,71 @@ export function googleDrive(): DriveAPI {
       return { used: Number(q.usage ?? 0), limit: q.limit ? Number(q.limit) : null }
     },
 
-    async shareLink(folderId) {
-      await g(`/files/${folderId}/permissions`, { method: 'POST', headers: json, body: JSON.stringify({ role: 'reader', type: 'anyone' }) })
-      return `https://drive.google.com/drive/folders/${folderId}`
+    async permissions(id) {
+      const res = await g(`/files/${id}/permissions?fields=${enc('permissions(id,type,role,emailAddress,displayName)')}`)
+      return ((await res.json()).permissions ?? []).map((p: { id: string; type: string; role: string; emailAddress?: string; displayName?: string }): Permission => ({
+        id: p.id,
+        type: p.type === 'anyone' ? 'anyone' : 'user',
+        role: p.role as Permission['role'],
+        email: p.emailAddress,
+        name: p.displayName,
+      }))
+    },
+
+    async share(id, to) {
+      const body = to.type === 'anyone' ? { type: 'anyone', role: 'reader' } : { type: 'user', role: to.role, emailAddress: to.email }
+      const res = await g(`/files/${id}/permissions?sendNotificationEmail=${to.type === 'user'}&fields=${enc('id,type,role,emailAddress,displayName')}`, { method: 'POST', headers: json, body: JSON.stringify(body) })
+      const p = await res.json()
+      return { id: p.id, type: p.type === 'anyone' ? 'anyone' : 'user', role: p.role, email: p.emailAddress, name: p.displayName }
+    },
+
+    async unshare(id, permissionId) {
+      await g(`/files/${id}/permissions/${permissionId}`, { method: 'DELETE' })
+    },
+
+    // A <video> element cannot send an Authorization header, so the short-lived token rides in the URL.
+    async mediaUrl(item) {
+      return `${API}/files/${item.id}?alt=media&access_token=${enc(await getToken())}`
+    },
+
+    async download(item, { onProgress, signal }) {
+      const w = window as unknown as { showSaveFilePicker?: (o: { suggestedName: string }) => Promise<{ createWritable(): Promise<{ write(c: Uint8Array): Promise<void>; close(): Promise<void> }> }> }
+      // Big files stream straight to disk where the browser allows it; this must run inside the click.
+      const handle = item.size > 50 * MB && w.showSaveFilePicker ? await w.showSaveFilePicker({ suggestedName: item.name }) : null
+      if (!handle && item.size > 600 * MB) {
+        // No streaming-to-disk in this browser and too big to hold in memory: let the browser download it.
+        const a = Object.assign(document.createElement('a'), { href: await this.mediaUrl(item), download: item.name })
+        document.body.append(a)
+        a.click()
+        a.remove()
+        onProgress(item.size, item.size)
+        return
+      }
+      const res = await g(`/files/${item.id}?alt=media`, { signal })
+      const total = Number(res.headers.get('content-length') || item.size) || item.size
+      const reader = res.body!.getReader()
+      let got = 0
+      if (handle) {
+        const out = await handle.createWritable()
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          await out.write(value)
+          got += value.length
+          onProgress(got, total)
+        }
+        await out.close()
+        return
+      }
+      const chunks: Uint8Array[] = []
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        got += value.length
+        onProgress(got, total)
+      }
+      saveBlob(item.name, new Blob(chunks as BlobPart[], { type: item.mimeType || 'application/octet-stream' }))
     },
 
     async writeText(name, parentId, text) {

@@ -1,12 +1,8 @@
 import * as RD from '@radix-ui/react-dialog'
 import { Check, Copy, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
-import { create } from 'zustand'
-import { STATUSES, type Status } from '../lib/types'
-import { copyText, cx, toast, useToasts } from '../lib/util'
-
-// Which global overlays are open. Kept outside React trees so shortcuts and any page can open them.
-export const useUI = create<{ newVideo: boolean; palette: boolean }>(() => ({ newVideo: false, palette: false }))
+import { stageInfo, type Stage } from '../lib/types'
+import { copyText, cx, dismissToast, toast, useToasts } from '../lib/util'
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'soft' | 'primary' | 'ghost' | 'danger'; size?: 'sm' | 'md' | 'lg'; icon?: boolean }
 export function Button({ variant = 'soft', size = 'md', icon, className, type = 'button', ...rest }: BtnProps) {
@@ -51,9 +47,9 @@ export function Modal({ open, onOpenChange, title, description, wide, children }
     <RD.Root open={open} onOpenChange={onOpenChange}>
       <RD.Portal>
         <RD.Overlay className="overlay" />
-        <RD.Content className="dialog" data-wide={wide ? '' : undefined} aria-describedby={description ? undefined : undefined}>
+        <RD.Content className="dialog" data-wide={wide ? '' : undefined}>
           <div className="mb-5 flex items-start justify-between gap-4">
-            <div>
+            <div className="min-w-0">
               <RD.Title className="display text-[26px]">{title}</RD.Title>
               {description ? <RD.Description className="mt-1.5 text-mute">{description}</RD.Description> : <RD.Description className="sr-only">{title}</RD.Description>}
             </div>
@@ -99,10 +95,10 @@ export function KitField({ label, value, onChange, max, rows = 1, placeholder, h
   )
 }
 
-export function StatusPill({ status }: { status: Status }) {
+export function StagePill({ stage }: { stage: Stage }) {
   return (
-    <span className="pill" data-status={status}>
-      {STATUSES.find((s) => s.id === status)?.label}
+    <span className="pill" data-stage={stage}>
+      {stageInfo(stage).label}
     </span>
   )
 }
@@ -142,7 +138,19 @@ export function Toaster() {
       {list.map((t) => (
         <div key={t.id} className="toast" data-kind={t.kind}>
           {t.kind === 'ok' && <Check size={15} strokeWidth={3} />}
-          {t.msg}
+          <span className="min-w-0 truncate">{t.msg}</span>
+          {t.action && (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                t.action!.run()
+                dismissToast(t.id)
+              }}
+            >
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -168,3 +176,29 @@ export function Logo({ size = 22 }: { size?: number }) {
     </span>
   )
 }
+
+export const Spinner = ({ size = 18 }: { size?: number }) => <span className="spin inline-block rounded-full border-2 border-line2 border-t-lime" style={{ width: size, height: size }} role="progressbar" aria-label="Loading" />
+
+export const Skeleton = ({ className }: { className?: string }) => <div className={cx('skeleton', className)} aria-hidden="true" />
+
+/** A row of mutually exclusive options. */
+export function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange(v: T): void; options: { id: T; label: ReactNode; title?: string }[]; label: string }) {
+  return (
+    <div className="flex rounded-full border border-line bg-coal p-1" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.id} type="button" role="tab" title={o.title} aria-selected={value === o.id} className="tab inline-flex !h-8 items-center gap-2" onClick={() => onChange(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Thin film-strip progress bar. */
+export const Progress = ({ value, state }: { value: number; state?: string }) => (
+  <div className="film" data-state={state}>
+    <i style={{ transform: `scaleX(${Math.max(0, Math.min(1, value))})` }} />
+  </div>
+)
+
+export const Kbd = ({ children }: { children: ReactNode }) => <kbd className="mono rounded-md border border-line2 bg-coal px-1.5 py-0.5 text-[11px] text-mute">{children}</kbd>

@@ -1,21 +1,24 @@
 # Slate
 
-**Every video, ready to publish.** Slate keeps each video's raw footage, edits, thumbnails and publish kit (title, description, pinned comment, tags) together in the creator's **own Google Drive**, and walks them through publishing.
+**Ideas in. Videos out.** A free workspace for creators that keeps every video's script, footage, edits and publish kit in the creator's **own Google Drive**, and walks each one from idea to published.
 
-Free to run. No database. Files upload straight from the browser to Google Drive.
+No database. Files upload straight from the browser to Google Drive. Slate only ever sees the files it creates.
 
-## What it does
+## The workflow
 
-- **Videos as projects**: each video gets a Drive folder with `Raw footage`, `Edited`, `Thumbnails` and any folders you add.
-- **Resumable uploads** in 8 MB chunks with pause, resume and retry. The uploaded size is checked against the local file, so you know when the laptop copy is safe to delete.
-- **Publish kit** with character counters for YouTube's limits, one-click copy per field, reusable templates and JSON import.
-- **Pipeline**: Idea, In edit, Ready, Scheduled, Published, as a drag-and-drop board, a grid, and a calendar.
-- **Publish mode**: a checklist beside YouTube Studio (download the final, copy each field, paste the link).
-- **Series and episode numbers**, publishing streak, storage meter read live from Google, share link for an editor, full JSON export.
-- **Demo mode**: a pretend vault that lives only in the browser, so anyone can try it without signing in.
-- A readable `Publish kit.txt` is written next to the footage, so the vault is useful without Slate.
+```
+Idea -> Script -> Shoot -> Edit   (Ideas board)      Ready -> Scheduled -> Published   (Uploads)
+```
 
-Not included on purpose: automatic YouTube upload and a browser extension.
+- **Ideas**: a board for videos in production. A new idea is a title and a description; open it to write the script (with a built-in teleprompter), link footage, and move it along.
+- **Library**: Drive for creators. **Raw footage** and **Edited** spaces with your own nested folders, thumbnails, drag-and-drop move, rename, share with an editor (by email or link), search, grid and list views. Every upload asks whether it is raw or edited and where it belongs.
+- **Send to Uploads**: one click turns an edited file in the Library into a video with a checklist, a date and a place in the pipeline.
+- **Uploads**: the YouTube pipeline. Overdue, **Upcoming**, ready to schedule and previously **Published**, as a list or a calendar. Open a video for its title, description, pinned comment, tags, thumbnail, files and publish checklist.
+- **Publish mode**: download the final, copy each field in YouTube Studio's order, paste the link back.
+- **Custom video player** that streams from Drive: glass controls, scrubbing with note markers, speed, frame-step, picture in picture, resume where you stopped, keyboard shortcuts, and timestamped review notes.
+- **Download** anything from the app, with live progress.
+- **Home**: a "do this next" with a button that goes straight to it, what is blocked, and the week ahead.
+- **Demo mode**: sample videos and a real player, stored only in the browser.
 
 ## How it is built
 
@@ -23,16 +26,16 @@ Not included on purpose: automatic YouTube upload and a browser extension.
 |---|---|
 | Web app | Vite, React 19, TypeScript, React Router, Tailwind CSS v4, Zustand |
 | UI | Hand-built on Radix Dialog and cmdk. No templates |
-| Motion | View Transitions API in the app. GSAP ScrollTrigger and Lenis on the landing page only. A small custom WebGL shader for the hero (no 3D library) |
+| Motion | View Transitions API between pages. CSS 3D and one scroll listener on the landing page. No animation libraries |
 | Storage | The user's Google Drive, scope `drive.file` (Slate can only touch files it created). One `slate.db.json` holds the text data |
 | Sign-in | `frontend/api/`: seven small Vercel Functions in plain Node, no dependencies. The refresh token lives only in an AES-256-GCM encrypted, httpOnly cookie in the user's own browser |
 | Hosting | Everything on Vercel (static site plus functions), so it is always on and the session cookie is first-party |
 
 ```
 frontend/
-  src/lib/              types, Drive adapter, demo adapter, vault store, upload queue, auth client
-  src/components/       shell, command palette, upload tray, file browser, cards, UI primitives
-  src/pages/            Landing, Home, Videos, VideoDetail, Calendar, Library, Settings, Legal
+  src/lib/              types, Drive adapter, demo adapter, vault store, transfers (upload + download), workflow rules, auth client
+  src/components/       shell, video player, teleprompter, dialogs (upload, move, share, send-to-uploads), UI primitives
+  src/pages/            Landing, Home, Ideas, Library, Uploads, VideoDetail, Settings, Legal
   api/                  Vercel Functions: /api/health, /api/auth/{login,callback,token,logout}, /api/drive/init, /api/yt
   api/_lib/core.js      the shared sign-in logic (the _lib folder is not routed)
   dev-api.mjs           local runner for the functions
