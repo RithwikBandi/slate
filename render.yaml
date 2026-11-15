@@ -18,5 +18,3 @@ services:
         sync: false
       - key: COOKIE_SECRET
         generateValue: true
-      - key: YT_API_KEY
-        sync: false

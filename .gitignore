@@ -1,7 +1,16 @@
+# dependencies and build output
 node_modules/
 dist/
+
+# secrets: env files and the secret/ folder (Google OAuth JSON etc.) never go to Git
 .env
-.env.local
+.env.*
+!.env.example
+secret/
+**/secret/
+client_secret*.json
+
+# tooling
+.vercel/
 .DS_Store
 *.log
-.vercel/
