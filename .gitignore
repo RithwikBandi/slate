@@ -6,8 +6,8 @@ dist/
 .env
 .env.*
 !.env.example
-secret/
-**/secret/
+[Ss]ecret/
+**/[Ss]ecret/
 client_secret*.json
 
 # tooling
