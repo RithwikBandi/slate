@@ -25,17 +25,17 @@ Not included on purpose: automatic YouTube upload and a browser extension.
 | UI | Hand-built on Radix Dialog and cmdk. No templates |
 | Motion | View Transitions API in the app. GSAP ScrollTrigger and Lenis on the landing page only. A small custom WebGL shader for the hero (no 3D library) |
 | Storage | The user's Google Drive, scope `drive.file` (Slate can only touch files it created). One `slate.db.json` holds the text data |
-| Sign-in | `backend/index.js`: a zero-dependency Node service. The refresh token lives only in an AES-256-GCM encrypted, httpOnly cookie in the user's browser |
-| Hosting | Web app on Vercel. Sign-in service on Render, reached through Vercel's `/api/*` rewrite so the cookie is first-party |
+| Sign-in | `frontend/api/`: seven small Vercel Functions in plain Node, no dependencies. The refresh token lives only in an AES-256-GCM encrypted, httpOnly cookie in the user's own browser |
+| Hosting | Everything on Vercel (static site plus functions), so it is always on and the session cookie is first-party |
 
 ```
-frontend/               the web app, deployed to Vercel
+frontend/
   src/lib/              types, Drive adapter, demo adapter, vault store, upload queue, auth client
   src/components/       shell, command palette, upload tray, file browser, cards, UI primitives
   src/pages/            Landing, Home, Videos, VideoDetail, Calendar, Library, Settings, Legal
-backend/                the sign-in service, deployed to Render (index.js, no dependencies)
-render.yaml             Render blueprint (builds only backend/)
-.github/workflows/      backup keep-alive pinger
+  api/                  Vercel Functions: /api/health, /api/auth/{login,callback,token,logout}, /api/drive/init, /api/yt
+  api/_lib/core.js      the shared sign-in logic (the _lib folder is not routed)
+  dev-api.mjs           local runner for the functions
 ```
 
 ## Run it locally
@@ -46,64 +46,49 @@ npm install
 npm run dev            # http://localhost:5173  ("Try the demo" works with no setup)
 ```
 
-To use real Google sign-in locally, copy `backend/.env.example` to `backend/.env`, fill it in, then in a second terminal:
+To use real Google sign-in locally, copy `frontend/.env.example` to `frontend/.env`, fill it in, add `http://localhost:5173` as an authorized origin and `http://localhost:5173/api/auth/callback` as a redirect URI on the Google client, then run in a second terminal:
 
 ```bash
-cd backend
-node --env-file=.env index.js
+cd frontend
+npm run api
 ```
-
-Add `http://localhost:5173/api/auth/callback` to the OAuth client's redirect URIs.
 
 ## Deploy (all free tiers)
 
-### 1. Google Cloud (about 10 minutes, no billing account needed)
+### 1. Google Cloud (about 15 minutes, no billing account needed)
 
-1. Go to <https://console.cloud.google.com>, create a project.
-2. **APIs & Services > Library**: enable **Google Drive API** (and **YouTube Data API v3** if you want view counts).
-3. **APIs & Services > OAuth consent screen**: user type **External**. Fill in the app name, your email, and the home page, privacy (`/privacy`) and terms (`/terms`) links of your deployed site. Add the scope `.../auth/drive.file`.
-4. Still on the consent screen, press **Publish app** so the status is **In production**. In *Testing*, sign-ins expire after 7 days.
-5. **Credentials > Create credentials > OAuth client ID > Web application**. Under *Authorized redirect URIs* add `https://YOUR-APP.vercel.app/api/auth/callback`. Copy the client ID and secret.
-6. Optional: **Create credentials > API key**, restrict it to YouTube Data API v3. This is `YT_API_KEY`.
+1. Create a project at <https://console.cloud.google.com> and enable the **Google Drive API** (and **YouTube Data API v3** for view counts, optional).
+2. **Google Auth Platform**: set up the consent screen as **External**. Add your home page, privacy (`/privacy`) and terms (`/terms`) links and the authorized domain. Under **Data Access** add only `openid`, `userinfo.email`, `userinfo.profile` and `drive.file`.
+3. **Audience > Publish app**, so the status is **In production**. In *Testing*, sign-ins expire after 7 days.
+4. **Clients > Create client**: Web application, with your site as the authorized JavaScript origin and `https://YOUR-DOMAIN/api/auth/callback` as the redirect URI. Keep the downloaded JSON in a `secret/` folder (it is git-ignored).
+5. Optional: an API key restricted to the YouTube Data API v3, used as `YT_API_KEY`.
 
-### 2. Render (the sign-in service)
+### 2. Vercel
 
-1. Push this repository to GitHub.
-2. In Render: **New > Blueprint**, pick the repository. It reads `render.yaml` and deploys only the `backend/` folder.
-3. Set the environment variables: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_ORIGIN` (`https://YOUR-APP.vercel.app`, no trailing slash) and optionally `YT_API_KEY`. `COOKIE_SECRET` is generated for you.
-4. Note the service URL, for example `https://slate-auth.onrender.com`.
+1. Import the repository and set **Root Directory** to `frontend` (framework preset: Vite).
+2. Add these Environment Variables (mark the secrets **Sensitive**):
+   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_ORIGIN` (your site, for example `https://slate.example.com`, no trailing slash), `COOKIE_SECRET` (any random string of 32+ characters), and optionally `YT_API_KEY`.
+3. Deploy. Pushes to `main` redeploy automatically.
+4. Optional custom domain: add it in the project's Domains tab and create the DNS records Vercel shows. Update the Google client's origin and redirect URI to match, and `APP_ORIGIN`.
 
-### 3. Vercel (the web app)
-
-1. In `frontend/vercel.json`, change the first rewrite's destination to your Render URL.
-2. Import the repository in Vercel and set **Root Directory** to `frontend`. Framework preset: **Vite**. No environment variables are needed.
-3. If you use a custom domain, update `APP_ORIGIN` on Render and the redirect URI in Google to match it.
-
-### 4. Keep the sign-in service awake
-
-Render's free services sleep after 15 minutes without traffic and take up to a minute to wake.
-
-- **Primary**: create a free job at <https://cron-job.org> that requests `https://YOUR-RENDER-URL/api/health` every **10 minutes**.
-- **Backup**: `.github/workflows/keepalive.yml` does the same from GitHub Actions. Add a repository variable `RENDER_URL`. GitHub's scheduler can run late, which is why it is only the backup.
-- The web app also pings the service as soon as the landing page opens, and waits for it before sending anyone to Google.
-
-One always-on free service uses about 744 of Render's 750 free hours per month, so keep this as the only free service in that Render workspace.
+There is nothing to keep awake: Vercel Functions start on demand in milliseconds, with no sleep and no separate server.
 
 ## Costs
 
 Nothing here needs a paid plan or a card. Things to know:
 
 - **Storage is the user's own Google storage.** Slate shows the real quota from Google. If an account fills up, Google stops new uploads until space is freed or the Google plan is changed.
-- **Vercel's free plan is for non-commercial use.** If Slate is ever sold, move the web app to a host that allows that.
-- Never store data in a free Render database (they are deleted after 30 days). Slate does not use one.
+- **Vercel's free plan is for non-commercial use.** If Slate is ever sold, move to a plan or host that allows that.
+- The functions only run for a few milliseconds per sign-in or token refresh, far inside free limits for a personal tool.
 
 ## Security notes
 
 - Scope is `drive.file` only: Slate cannot read anything in Drive that it did not create.
 - OAuth uses the authorization-code flow with PKCE and a state check. State-changing endpoints need a custom header and a matching `Origin`.
 - The client secret and refresh token never reach browser JavaScript. The access token (1 hour) is held in memory only.
-- `vercel.json` sets a Content-Security-Policy and standard hardening headers.
+- Secrets live in Vercel as Sensitive environment variables and in a git-ignored `secret/` folder locally; `.env*` files (except `.env.example`) are git-ignored too.
+- `frontend/vercel.json` sets a Content-Security-Policy and standard hardening headers.
 
 ## Status
 
-Built and tested against demo mode end to end (create, upload, kit, board, calendar, publish). The real Google Drive path is implemented but needs the credentials above before it can be exercised; the first thing to verify after deploying is a multi-chunk upload.
+Built and tested in demo mode end to end (create, upload, kit, board, calendar, publish). The live sign-in path is deployed and its redirect, cookie flags and rejections are verified. A full real-account round trip (sign in, then a multi-chunk upload to Drive) is the first thing to verify after any change to the credentials.
