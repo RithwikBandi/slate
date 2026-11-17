@@ -1,5 +1,5 @@
-import { ArrowDownToLine, ArrowRight, Check, Film, FolderTree, HardDrive, Lightbulb, MessageSquarePlus, Play, Plus, Send, Share2, ShieldCheck, Upload } from 'lucide-react'
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowDownToLine, ArrowRight, Check, FolderTree, HardDrive, Lightbulb, MessageSquarePlus, Plus, Send, Share2, ShieldCheck, Upload } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Logo } from '../components/ui'
 import { signIn, wakeServer } from '../lib/auth'
@@ -9,7 +9,8 @@ import { useVault } from '../lib/vault'
 
 const Player = lazy(() => import('../components/Player').then((m) => ({ default: m.Player })))
 
-const SAMPLE: DriveItem = { id: 'sample', name: 'pricing-final-v2.mp4', kind: 'file', mimeType: 'video/mp4', size: 270164, createdTime: '', modifiedTime: '', parent: null, thumbnailLink: '/sample-poster.jpg', durationMs: 14000 }
+// Three of Rithwik's own daily Shorts, side by side: the clip the landing player and the demo fall back to.
+const SAMPLE: DriveItem = { id: 'sample', name: 'another-day-in-the-making.mp4', kind: 'file', mimeType: 'video/mp4', size: 1684339, createdTime: '', modifiedTime: '', parent: null, thumbnailLink: '/sample-poster.jpg', durationMs: 12000 }
 
 const G = (
   <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
@@ -38,93 +39,44 @@ function Timecode({ className }: { className?: string }) {
   return <span ref={el} className={className}>00:00:00:00</span>
 }
 
-// ---------------------------------------------------------------- the five scenes of the reel (live mock-ups, not screenshots)
-const Chip = ({ children, on }: { children: ReactNode; on?: boolean }) => <span className={`mono rounded-md px-2 py-1 text-[11px] ${on ? 'bg-lime text-carbon' : 'bg-raise text-mute'}`}>{children}</span>
-
-function MockIdeas() {
-  return (
-    <div className="grid grid-cols-3 gap-2.5 p-4">
-      {[['Idea', '#7fd6ff', ['Why I started', 'Home studio tour']], ['Script', '#a79bff', ['Handling objections']], ['Shoot', '#ffc857', ['A day of rejections']]].map(([name, c, cards]) => (
-        <div key={name as string} className="rounded-2xl border border-line bg-coal p-2.5">
-          <p className="mono mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-widest" style={{ color: c as string }}><i className="h-1.5 w-1.5 rounded-full" style={{ background: c as string }} />{name as string}</p>
-          {(cards as string[]).map((t, i) => <div key={t} className="mb-2 rounded-xl border border-line bg-panel p-2.5" style={{ animation: `rise .6s var(--ease) ${i * 120}ms both` }}><p className="display text-[13px] leading-tight">{t}</p><p className="mt-1 h-1.5 w-2/3 rounded bg-raise" /></div>)}
-        </div>
-      ))}
-      <div className="col-span-3 rounded-2xl border border-line bg-panel p-3.5">
-        <p className="label mb-1.5">Script</p>
-        <p className="text-[13px] leading-relaxed text-paper/90">Hook: I priced my first website at ₹6,000 and I still think about it.<span className="caret" /></p>
-      </div>
-    </div>
-  )
-}
-
-function MockLibrary() {
-  return (
-    <div className="p-4">
-      <div className="mb-3 flex items-center gap-2"><Chip on>Raw footage</Chip><Chip>Edited</Chip><Chip>Thumbnails</Chip><span className="ml-auto"><Chip on>Upload</Chip></span></div>
-      <div className="mb-3 flex gap-2">{['Day 04 · Pricing', 'Day 05 · Rejections', 'Day 06 · Tools'].map((f) => <span key={f} className="flex items-center gap-2 rounded-xl border border-line bg-panel px-3 py-2 text-[12px] font-semibold"><FolderTree size={13} className="text-lime" />{f}</span>)}</div>
-      <div className="grid grid-cols-3 gap-2.5">
-        {[0, 1, 2].map((i) => <div key={i} className="overflow-hidden rounded-xl border border-line bg-panel"><div className="aspect-video" style={{ background: `linear-gradient(${120 + i * 40}deg, #1e222a, ${['#2a3a10', '#3a2210', '#102a3a'][i]})` }} /><p className="mono truncate px-2 py-1.5 text-[10.5px] text-mute">{['A001_main_take.mov', 'broll_phone.mov', 'broll_desk.mov'][i]}</p></div>)}
-      </div>
-      <div className="mt-3 rounded-xl border border-line bg-panel p-3"><p className="mono mb-1.5 flex justify-between text-[11px]"><span className="flex items-center gap-1.5"><Upload size={12} className="text-lime" /> tools_take1.mov</span><span className="text-lime">78%</span></p><div className="film"><i style={{ animation: 'fillbar 3.2s ease-in-out infinite' }} /></div></div>
-    </div>
-  )
-}
-
-function MockSend() {
-  return (
-    <div className="grid gap-3 p-4">
-      <div className="flex items-center gap-3 rounded-2xl border border-line bg-panel p-3">
-        <div className="grid h-14 w-24 place-items-center rounded-lg bg-coal"><Film size={20} className="text-mute" /></div>
-        <div className="min-w-0 flex-1"><p className="truncate font-semibold">pricing-final-v2.mp4</p><p className="mono text-[11px] text-dim">44 MB · 0:14 · Edited / Shorts</p></div>
-        <span className="send-btn mono flex items-center gap-1.5 rounded-full bg-lime px-3 py-1.5 text-[12px] font-bold text-carbon"><Send size={12} /> Send to Uploads</span>
-      </div>
-      <div className="flex justify-center text-lime"><ArrowDownToLine size={20} className="animate-bounce" /></div>
-      <div className="rounded-2xl border border-lime/50 bg-lime/5 p-3" style={{ animation: 'rise .7s var(--ease) .5s both' }}>
-        <p className="label mb-1.5 !text-lime">Uploads · Ready to schedule</p>
-        <p className="display text-[17px]">Pricing my first website</p>
-        <div className="mt-2 flex gap-1">{[1, 1, 1, 0, 0].map((x, i) => <i key={i} className="h-1 flex-1 rounded-full" style={{ background: x ? '#c6f432' : '#3a404d' }} />)}</div>
-      </div>
-    </div>
-  )
-}
-
-function MockPlayer() {
-  return (
-    <div className="p-4">
-      <div className="relative aspect-video overflow-hidden rounded-2xl" style={{ background: 'radial-gradient(120% 90% at 20% 10%, #3a4a10, #0c0d10 60%), #0c0d10' }}>
-        <div className="absolute inset-x-4 bottom-3 rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur-xl">
-          <div className="relative mb-2 h-1.5 rounded bg-white/25"><i className="absolute inset-y-0 left-0 w-[42%] rounded bg-white" /><b className="absolute left-[18%] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-black bg-lime" /><b className="absolute left-[63%] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-black bg-lime" /></div>
-          <div className="flex items-center gap-3 text-white"><Play size={15} fill="currentColor" /><span className="mono text-[11px]">0:06 / 0:14</span><span className="ml-auto flex items-center gap-2 text-[11px]"><MessageSquarePlus size={14} className="text-lime" /> 2 notes · 1×</span></div>
-        </div>
-        <div className="absolute right-4 top-4 w-44 rounded-xl border border-white/10 bg-black/60 p-2.5 text-[11px] backdrop-blur-md" style={{ animation: 'rise .6s var(--ease) .3s both' }}><span className="mono mr-1.5 rounded bg-lime px-1 font-bold text-carbon">0:03</span>Cut the pause here</div>
-      </div>
-    </div>
-  )
-}
-
-function MockPublish() {
-  const rows = ['Download the final export', 'Title', 'Description', 'Pinned comment']
-  return (
-    <div className="grid gap-2 p-4">
-      {rows.map((r, i) => (
-        <div key={r} className="flex items-center gap-3 rounded-2xl border border-line bg-panel p-3" style={{ animation: `rise .5s var(--ease) ${i * 140}ms both` }}>
-          <span className="grid h-6 w-6 place-items-center rounded-full bg-lime text-carbon" style={{ animation: `popin .4s var(--ease) ${500 + i * 450}ms both` }}><Check size={13} strokeWidth={3} /></span>
-          <span className="flex-1 text-[13px] font-semibold">{r}</span><span className="mono text-[11px] text-dim">Copy</span>
-        </div>
-      ))}
-      <div className="mt-1 flex justify-end"><span className="stamp !text-[12px]">PUBLISHED</span></div>
-    </div>
-  )
-}
-
+// ---------------------------------------------------------------- the five scenes of the reel: real recordings of the app (public/app), not mock-ups
 const SCENES = [
-  { n: '01', tag: 'Ideas', title: 'Catch it before it is gone.', body: 'A title and a few lines is all an idea needs. Move it across the board as it becomes a script, a shoot and an edit.', points: ['Script editor with a built-in teleprompter', 'Drag ideas between stages', 'Series and episode numbers, automatic'], Mock: MockIdeas },
-  { n: '02', tag: 'Library', title: 'Footage gets a real home.', body: 'Raw footage and edited video, in folders you make, on your own Google Drive. Drag, move, share, rename. Like Drive, built for creators.', points: ['Raw and Edited spaces, nested folders', 'Uploads that resume and verify size', 'Share a folder with your editor'], Mock: MockLibrary },
-  { n: '03', tag: 'Hand-off', title: 'Edited file in. Upload out.', body: 'Press Send to Uploads on a finished cut and it becomes a video with a checklist, a date and a place in your pipeline.', points: ['One click from Library to Uploads', 'Many cuts, one marked final', 'Know what is missing before you post'], Mock: MockSend },
-  { n: '04', tag: 'Review', title: 'Watch it where it lives.', body: 'A player built for reviewing. Stream straight from Drive, pin a note to the exact second, and never open Drive to watch a cut.', points: ['Timestamped review notes', 'Frame-step, speed, picture in picture', 'Resumes where you stopped'], Mock: MockPlayer },
-  { n: '05', tag: 'Publish', title: 'Schedule. Copy. Post.', body: 'Upcoming, overdue and published, in one pipeline. Publish mode walks you down the list beside YouTube Studio.', points: ['Calendar with drag-to-schedule', 'Title, description and comment, one tap each', 'Views once it is live'], Mock: MockPublish },
+  { n: '01', tag: 'Ideas', title: 'Catch it before it is gone.', body: 'A title and a few lines is all an idea needs. Move it across the board as it becomes a script, a shoot and an edit.', points: ['Script editor with a built-in teleprompter', 'Drag ideas between stages', 'Series and episode numbers, automatic'], clip: 'ideas' },
+  { n: '02', tag: 'Library', title: 'Footage gets a real home.', body: 'Raw footage and edited video, in folders you make, on your own Google Drive. Drag, move, share, rename. Like Drive, built for creators.', points: ['Raw and Edited spaces, nested folders', 'Uploads that resume and verify size', 'Share a folder with your editor'], clip: 'library' },
+  { n: '03', tag: 'Hand-off', title: 'Edited file in. Upload out.', body: 'Press Send to Uploads on a finished cut and it becomes a video with a checklist, a date and a place in your pipeline.', points: ['One click from Library to Uploads', 'Many cuts, one marked final', 'Know what is missing before you post'], clip: 'send' },
+  { n: '04', tag: 'Review', title: 'Watch it where it lives.', body: 'A player built for reviewing. Stream straight from Drive, pin a note to the exact second, and never open Drive to watch a cut.', points: ['Timestamped review notes', 'Frame-step, speed, picture in picture', 'Resumes where you stopped'], clip: 'player' },
+  { n: '05', tag: 'Publish', title: 'Schedule. Copy. Post.', body: 'Upcoming, overdue and published, in one pipeline. Publish mode walks you down the list beside YouTube Studio.', points: ['Calendar with drag-to-schedule', 'Title, description and comment, one tap each', 'Views once it is live'], clip: 'publish' },
 ]
+
+/** One scene of the reel: a muted, looping screen recording of the real app. Still frame only when the visitor prefers reduced motion. */
+function SceneClip({ clip, label }: { clip: string; label: string }) {
+  const still = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (still) return <img src={`/app/${clip}.jpg`} alt={`Slate: ${label}`} className="block w-full" loading="lazy" />
+  return <video src={`/app/${clip}.mp4`} poster={`/app/${clip}.jpg`} className="block w-full" autoPlay muted loop playsInline preload="metadata" aria-label={`Screen recording of Slate: ${label}`} />
+}
+
+
+const REEL = [
+  { clip: 'd2', day: 'DAY 02', title: '50 cold calls, one closed client', note: 'Sales day' },
+  { clip: 'd3', day: 'DAY 03', title: '“I’m impressed with your work”', note: 'The prototype meeting' },
+  { clip: 'd4', day: 'DAY 04', title: 'A call forwarding issue cost me a prospect', note: 'Saturday at the office' },
+  { clip: 'd5', day: 'DAY 05', title: 'I stayed up late and built a working app', note: 'Sunday: the idea behind Slate' },
+]
+
+/** One of Rithwik's own Shorts, muted and looping. Plays only while it is on screen; a still frame for reduced motion. */
+function ReelVideo({ clip, label }: { clip: string; label: string }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  const still = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  useEffect(() => {
+    const el = ref.current
+    if (!el || still) return
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) el.play().catch(() => {}); else el.pause() }, { threshold: 0.35 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [still])
+  if (still) return <img src={`/demo/${clip}.jpg`} alt={label} className="h-full w-full object-cover" loading="lazy" />
+  return <video ref={ref} src={`/demo/${clip}.mp4`} poster={`/demo/${clip}.jpg`} className="h-full w-full object-cover" muted loop playsInline preload="none" aria-label={label} />
+}
 
 export default function Landing() {
   const nav = useNavigate()
@@ -200,7 +152,6 @@ export default function Landing() {
       <button type="button" className="btn btn-lg !bg-transparent" onClick={demo}>Try the demo</button>
     </div>
   )
-  const Active = SCENES[scene].Mock
 
   return (
     <div className="landing overflow-x-clip">
@@ -234,16 +185,16 @@ export default function Landing() {
         </div>
 
         <div className="relative z-10 grid place-items-center" onPointerMove={tilt} onPointerLeave={() => { clap.current?.style.setProperty('--rx', '0deg'); clap.current?.style.setProperty('--ry', '0deg') }}>
-          <div ref={clap} className="clap" role="img" aria-label="A clapperboard reading: scene 1, take 1">
+          <div ref={clap} className="clap" role="img" aria-label="A clapperboard reading: Another Day in the Making, scene 6, take 1">
             <div className="clap-flash" />
             <div className="clap-arm"><span /></div>
             <div className="clap-stick"><span /></div>
             <div className="clap-body">
-              <div className="clap-row"><label>PROD.</label><b>YOUR CHANNEL</b></div>
+              <div className="clap-row"><label>PROD.</label><b>ANOTHER DAY IN THE MAKING</b></div>
               <div className="clap-grid">
-                <div><label>SCENE</label><b>1</b></div><div><label>TAKE</label><b>1</b></div><div><label>ROLL</label><b>A001</b></div>
+                <div><label>SCENE</label><b>6</b></div><div><label>TAKE</label><b>1</b></div><div><label>ROLL</label><b>A006</b></div>
               </div>
-              <div className="clap-row"><label>DIRECTOR</label><b>YOU</b></div>
+              <div className="clap-row"><label>DIRECTOR</label><b>RITHWIK</b></div>
               <div className="clap-row"><label>DATE</label><b>{new Date().toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()}</b></div>
             </div>
           </div>
@@ -266,7 +217,7 @@ export default function Landing() {
             </div>
             <div className="monitor">
               <div className="monitor-bar"><i /><i /><i /><span className="mono">slate · {SCENES[scene].tag.toLowerCase()}</span></div>
-              <div key={scene} className="monitor-screen"><Active /></div>
+              <div key={scene} className="monitor-screen"><SceneClip clip={SCENES[scene].clip} label={SCENES[scene].tag} /></div>
             </div>
           </div>
         </div>
@@ -275,7 +226,7 @@ export default function Landing() {
           {SCENES.map((s) => (
             <article key={s.n} className="grid gap-5">
               <div><p className="mono text-[13px] text-lime">{s.n} / 05 · {s.tag.toUpperCase()}</p><h3 className="display mt-2 text-[34px]">{s.title}</h3><p className="mt-3 text-mute">{s.body}</p></div>
-              <div className="monitor"><div className="monitor-bar"><i /><i /><i /><span className="mono">slate · {s.tag.toLowerCase()}</span></div><div className="monitor-screen"><s.Mock /></div></div>
+              <div className="monitor"><div className="monitor-bar"><i /><i /><i /><span className="mono">slate · {s.tag.toLowerCase()}</span></div><div className="monitor-screen"><SceneClip clip={s.clip} label={s.tag} /></div></div>
             </article>
           ))}
         </div>
@@ -289,7 +240,29 @@ export default function Landing() {
           <p className="mt-4 text-[17px] text-mute">Move the mouse for controls. Double-tap the sides to skip. Press <kbd className="mono rounded border border-line2 px-1.5">?</kbd> for every shortcut. It is the same player you review your own cuts in.</p>
         </div>
         <div ref={playerBox} className="min-h-[300px]">
-          {showPlayer && <Suspense fallback={<div className="skeleton aspect-video rounded-[28px]" />}><Player src={{ item: SAMPLE }} url="/sample.mp4" inline autoPlay={false} title="Pricing my first website · final cut" /></Suspense>}
+          {showPlayer && <Suspense fallback={<div className="skeleton aspect-video rounded-[28px]" />}><Player src={{ item: SAMPLE }} url="/sample.mp4" inline autoPlay={false} title="Another Day in the Making · three days, three cuts" /></Suspense>}
+        </div>
+      </section>
+
+
+      {/* ---------------------------------------------------------------- his real videos, organised in Slate */}
+      <section className="border-t border-line px-8 py-24 md:px-14" aria-label="Videos made with Slate">
+        <div className="mx-auto max-w-[1240px]">
+          <p className="label">Made with it</p>
+          <h2 className="display mt-3 max-w-3xl text-[clamp(34px,5vw,64px)]">Five days. Four Shorts. All of it in here.</h2>
+          <p className="mt-4 max-w-2xl text-[17px] text-mute">These are the daily Shorts Slate was built for: script, raw takes, edits and publish kit, kept in one Drive. Rithwik posts one a day.</p>
+          <ul className="mt-12 grid grid-cols-2 gap-4 md:grid-cols-4">
+            {REEL.map((r) => (
+              <li key={r.clip} className="group">
+                <div className="reel-card relative aspect-[9/16] overflow-hidden rounded-3xl border border-line bg-coal">
+                  <ReelVideo clip={r.clip} label={r.title} />
+                  <span className="mono absolute left-3 top-3 rounded-md bg-carbon/80 px-2 py-1 text-[11px] text-lime backdrop-blur">{r.day}</span>
+                </div>
+                <p className="mt-3 text-[15px] font-semibold leading-snug">{r.title}</p>
+                <p className="mono mt-1 text-[11.5px] text-dim">{r.note}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 

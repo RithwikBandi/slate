@@ -3,13 +3,16 @@ import type { Db, DriveAPI, DriveItem, Kit, Permission, Profile, Stage, Video } 
 
 // Demo mode: a pretend Drive that lives only in this browser. Nothing is uploaded anywhere.
 // It behaves like the real thing (nested folders, move, rename, share, stream, download) so every
-// workflow can be tried without signing in. All sample videos play the bundled /sample.mp4.
+// workflow can be tried without signing in. The sample videos are short excerpts of Rithwik's own
+// daily Shorts and raw takes, bundled in /demo (each clip's poster and media share a name).
 
-const KEY = 'slate-demo-v2'
-export const DEMO_PROFILE: Profile = { name: 'Demo creator', email: 'demo@slate.local' }
+const KEY = 'slate-demo-v3'
+export const DEMO_PROFILE: Profile = { name: 'ItsRithwik', email: 'demo@slate.local' }
 const SAMPLE = '/sample.mp4'
 const POSTER = '/sample-poster.jpg'
 const MB = 1024 * 1024
+/** A seeded clip keeps its poster in /demo/NAME.jpg; the matching excerpt is /demo/NAME.mp4. */
+const mediaOf = (i: DriveItem): string => i.local ?? (i.thumbnailLink?.startsWith('/demo/') && i.mimeType.startsWith('video/') ? i.thumbnailLink.replace(/\.jpg$/, '.mp4') : SAMPLE)
 
 interface Store {
   db: Db
@@ -31,37 +34,37 @@ function seed(): Store {
     add({ id, name, kind: 'folder', mimeType: 'application/vnd.google-apps.folder', size: 0, createdTime: iso(6), modifiedTime: iso(2), parent })
     return id
   }
-  const clip = (name: string, mb: number, parent: string, daysAgo: number, mime = 'video/mp4'): string => {
+  const clip = (name: string, mb: number, parent: string, daysAgo: number, media: string, secs: number, mime = 'video/mp4'): string => {
     const id = uid('f')
-    add({ id, name, kind: 'file', mimeType: mime, size: Math.round(mb * MB), createdTime: iso(daysAgo), modifiedTime: iso(daysAgo), parent, thumbnailLink: POSTER, durationMs: 14000, width: 1080, height: 1920 })
+    add({ id, name, kind: 'file', mimeType: mime, size: Math.round(mb * MB), createdTime: iso(daysAgo), modifiedTime: iso(daysAgo), parent, thumbnailLink: `/demo/${media}.jpg`, durationMs: secs * 1000, width: 1080, height: 1920 })
     return id
   }
   const root = 'demo-root'
   const spaces = { root, raw: folder('demo-raw', 'Raw footage', root), edited: folder('demo-edited', 'Edited footage', root), thumbs: folder('demo-thumbs', 'Thumbnails', root) }
 
-  const d4 = folder('demo-d4', 'Day 04 · Pricing', spaces.raw)
-  const d5 = folder('demo-d5', 'Day 05 · Rejections', spaces.raw)
-  const d6 = folder('demo-d6', 'Day 06 · Tools', spaces.raw)
-  const rawPricing = clip('pricing_take.mov', 420, d4, 6, 'video/quicktime')
-  const rawRej = clip('A001_main_take.mov', 504, d5, 3, 'video/quicktime')
-  const rawRejB1 = clip('broll_phone.mov', 48, d5, 3, 'video/quicktime')
-  const rawRejB2 = clip('broll_desk.mov', 41, d5, 3, 'video/quicktime')
-  const rawTools = clip('tools_take1.mov', 380, d6, 2, 'video/quicktime')
-  const rawTools2 = clip('tools_screen_capture.mov', 210, d6, 2, 'video/quicktime')
+  const day2 = folder('demo-d2', 'Day 02 · Sales day', spaces.raw)
+  const day3 = folder('demo-d3', 'Day 03 · Prototype meeting', spaces.raw)
+  const QT = 'video/quicktime'
+  const rawCalls = clip('broll_cold_calling.MOV', 96, day2, 4, 'r1', 8, QT)
+  const rawSheet = clip('broll_leadsheet.MOV', 74, day2, 4, 'r2', 8, QT)
+  const rawMeet = clip('broll_meet_demo.MOV', 118, day2, 4, 'r3', 8, QT)
+  const rawResearch = clip('broll_researching.MOV', 88, day2, 4, 'r4', 8, QT)
+  const rawNotes = clip('broll_taking_notes.MOV', 77, day2, 4, 'r5', 8, QT)
+  const rawFinish = clip('Video_3_FinishLine.MOV', 25, day3, 3, 'r6', 3, QT)
 
   const shorts = folder('demo-shorts', 'Shorts', spaces.edited)
-  const pricingFinal = clip('pricing-final-v2.mp4', 44, shorts, 1)
-  const pricingDraft = clip('pricing-draft-v1.mp4', 51, shorts, 2)
-  const toolsFinal = clip('tools-final-v1.mp4', 38, shorts, 1)
-  const meetingFinal = clip('prototype-meeting-final.mp4', 92, shorts, 4)
-  const coldFinal = clip('first-cold-calls-final.mp4', 61, shorts, 5)
-  const rejCut = clip('rejections-rough-cut.mp4', 57, spaces.edited, 1)
+  const sundayFinal = clip('Video_5_v3.mp4', 48, shorts, 0, 'd5', 12)
+  const sundayDraft = clip('Video_5_v2.mp4', 50, shorts, 0, 'd5', 12)
+  const saturdayFinal = clip('Video_4_v3.mp4', 43, shorts, 1, 'd4', 10)
+  const meetingFinal = clip('Video_3_v2.mp4', 41, shorts, 2, 'd3', 12)
+  const salesFinal = clip('Video_2_v2.mp4', 89, shorts, 3, 'd2', 12)
+  clip('Video_5_v1.mp4', 57, shorts, 0, 'd5', 12) // an earlier cut, not linked to a video yet: shows Send to Uploads
 
   const thumb = uid('f')
-  add({ id: thumb, name: 'pricing-thumb.jpg', kind: 'file', mimeType: 'image/jpeg', size: Math.round(0.4 * MB), createdTime: iso(1), modifiedTime: iso(1), parent: spaces.thumbs, thumbnailLink: POSTER })
+  add({ id: thumb, name: 'ItsRithwik_Thumbnail.jpg', kind: 'file', mimeType: 'image/jpeg', size: Math.round(0.4 * MB), createdTime: iso(1), modifiedTime: iso(1), parent: spaces.thumbs, thumbnailLink: '/demo/thumb.jpg' })
 
   const t = today()
-  const description = "Today was the biggest day yet.\n\nWe presented our website prototype to the client, and she loved it.\n\nFollow along for the final decision.\n\n#dayinthelife #webdesign #agencylife #shorts"
+  const tagsLine = '#buildinpublic #dayinthelife #shorts'
   const base = (): Video => ({
     id: uid('v'), title: '', pitch: '', script: '', stage: 'idea', series: '', episode: null, publishDate: null, youtubeUrl: '',
     createdAt: iso(7), updatedAt: iso(1), publishedAt: null, kit: blankKit(), notes: '', markers: [], rawIds: [], editIds: [], finalId: null,
@@ -72,50 +75,44 @@ function seed(): Store {
 
   const videos: Video[] = [
     make({
-      title: 'Pricing my first website', stage: 'ready', series: S, episode: 4, publishDate: null,
-      pitch: 'What I charged for a first site, why it was too low, and the number I would quote today.',
-      script: "Hook: I priced my first website at ₹6,000 and I still think about it.\n\nBeat 1: Why I picked that number (fear, not maths).\nBeat 2: The three questions that fix pricing.\nBeat 3: The number I quote now.\n\nClose: Tell me your first price in the comments.",
-      kit: blankKit({ title: 'I priced my first website. Here is the number.', description, pinnedComment: 'Too low or too high? Be honest.', tags: 'pricing, web design, freelancing' }),
-      rawIds: [rawPricing], editIds: [pricingDraft, pricingFinal], finalId: pricingFinal, thumbId: thumb, verified: [pricingFinal],
-      markers: [{ id: uid('m'), t: 3.2, text: 'Cut the pause before "six thousand"', at: iso(1) }, { id: uid('m'), t: 9.5, text: 'Add the price as on-screen text', at: iso(1) }],
+      title: 'Sunday: the app I stayed up building', stage: 'ready', series: S, episode: 5, publishDate: null,
+      pitch: 'A late night, an idea that became a working app, and a Sunday that started at 2 PM.',
+      script: "Today was a little different. I stayed up late last night, working on an idea and actually turning it into a working application. So, naturally, my Sunday started at 2 PM.\n\nApart from that, I got back to prospect follow-ups, continued building the application, and finally cleared some long-pending tasks on my GitHub and portfolio.\n\nI also spent some time researching YouTube and working on what's next.\n\nBut there's something I'm particularly excited about.\n\nI'll be sharing the application I've been building in tomorrow's video. I'll dedicate an entire video to the idea, what it does, and how I built it.\n\nSo, stay tuned.\n\nStill figuring out, still building.\n\nSee you tomorrow.",
+      kit: blankKit({ title: 'I stayed up late and built a working app', description: `Today was a little different.\n\nI stayed up late turning an idea into a working application, so my Sunday started at 2 PM.\n\nTomorrow: the app itself.\n\n${tagsLine}`, pinnedComment: 'The app reveal is tomorrow. Any guesses what it does?', tags: 'build in public, day in the life, indie developer, web app' }),
+      editIds: [sundayDraft, sundayFinal], finalId: sundayFinal, thumbId: thumb, verified: [sundayFinal],
+      markers: [{ id: uid('m'), t: 3.0, text: 'Zoom should ease in slowly, not snap', at: iso(0) }, { id: uid('m'), t: 9.5, text: 'Captions must stay below the face', at: iso(0) }],
     }),
     make({
-      title: 'A day of rejections', stage: 'edit', series: S, episode: 5,
-      pitch: 'Twenty calls, three conversations, one useful sentence.',
-      script: 'Open on the third call. Keep it under 40 seconds.\n\nThe line that matters: "Come back when it is a priority."',
-      rawIds: [rawRej, rawRejB1, rawRejB2], editIds: [rejCut],
+      title: 'Slate: the app reveal', stage: 'script', series: S, episode: 6,
+      pitch: 'Show the app I teased for two days. The app is the hero, not me.',
+      script: "Remember the app I stayed up late building? This is it.\n\nIt's called Slate.\n\nEvery video I make has a script, raw footage, edits, a thumbnail, a title. And all of it was scattered everywhere.\n\nSo I built one place for all of it.\n\nA video starts as an idea on this board.\n\nI write the script right inside it, and there's even a teleprompter.\n\nMy footage sits in a library, raw and edited, and it plays right in the app.\n\nAnd when the video is ready, the title, description and tags are waiting. I just copy, paste, publish.\n\nThe best part: nothing is stored with me. Everything stays in your own Google Drive.\n\nIt's live, it's free, and the code is open on GitHub.\n\nWould you use it? Tell me in the comments.\n\nStill figuring out, still building.",
     }),
     make({
-      title: 'Tools I use every day', stage: 'scheduled', series: S, episode: 6, publishDate: addDays(t, 3),
-      pitch: 'The five tools that run a one-person agency.',
-      kit: blankKit({ title: 'The 5 tools that run my one-person agency', description }),
-      rawIds: [rawTools, rawTools2], editIds: [toolsFinal], finalId: toolsFinal, verified: [toolsFinal],
+      title: 'Saturday at the office', stage: 'published', series: S, episode: 4, publishDate: addDays(t, -1), publishedAt: iso(1),
+      kit: blankKit({ title: 'A call forwarding issue cost me a prospect', description: `It was Saturday, but we still had office.\n\nOne discovery call, one forwarding mistake, and an idea I turned into a working app.\n\n${tagsLine}`, pinnedComment: 'Has a small technical mistake ever cost you a client?' }),
+      editIds: [saturdayFinal], finalId: saturdayFinal, verified: [saturdayFinal],
     }),
     make({
-      title: 'The prototype meeting', stage: 'published', series: S, episode: 3, publishDate: addDays(t, -1), publishedAt: iso(1),
-      kit: blankKit({ title: 'She said "I\'m impressed with your work"', description, pinnedComment: 'Decision comes tomorrow. Do you think she says yes?' }),
-      editIds: [meetingFinal], finalId: meetingFinal, verified: [meetingFinal],
+      title: 'The prototype meeting', stage: 'published', series: S, episode: 3, publishDate: addDays(t, -2), publishedAt: iso(2),
+      kit: blankKit({ title: 'She said "I\'m impressed with your work"', description: `We presented our website prototype to the client, and she loved it.\n\nFollow along for the final decision.\n\n${tagsLine}`, pinnedComment: 'Decision comes tomorrow. Do you think she says yes?' }),
+      rawIds: [rawFinish], editIds: [meetingFinal], finalId: meetingFinal, verified: [meetingFinal],
     }),
     make({
-      title: 'First cold calls', stage: 'published', series: S, episode: 2, publishDate: addDays(t, -2), publishedAt: iso(2),
-      kit: blankKit({ title: 'I made 20 cold calls. This is what happened.', description }),
-      editIds: [coldFinal], finalId: coldFinal,
+      title: 'Sales day: 50 cold calls', stage: 'published', series: S, episode: 2, publishDate: addDays(t, -3), publishedAt: iso(3),
+      kit: blankKit({ title: '50 cold calls, one closed client', description: `A full day of calls, a closed client and my first proper discovery call.\n\n${tagsLine}` }),
+      rawIds: [rawCalls, rawSheet, rawMeet, rawResearch, rawNotes], editIds: [salesFinal], finalId: salesFinal,
     }),
-    make({
-      title: 'Handling "it is too expensive"', stage: 'script',
-      pitch: 'Three replies that keep the conversation going without discounting.',
-      script: 'Hook: The fastest way to lose a client is to say "I can do it for less".\n\nBeat 1: What the objection really means.\nBeat 2: ',
-    }),
-    make({ title: 'Home studio tour', stage: 'shoot', pitch: 'A 40-second tour of a desk that earns money.' }),
-    make({ title: 'Why I started an agency', stage: 'idea', pitch: 'The origin story. One take at the desk, no b-roll.' }),
+    make({ title: 'My video workflow, start to finish', stage: 'shoot', pitch: 'Idea, script, shoot, edit, publish: how one daily Short gets made.' }),
+    make({ title: 'A week of building in public', stage: 'idea', pitch: 'Seven days, what worked, what did not.' }),
+    make({ title: 'What I would tell myself on day one', stage: 'idea', pitch: 'One take at the desk, no b-roll.' }),
   ]
 
   const db: Db = {
     v: 2,
     spaces,
     templates: [
-      { id: uid('t'), name: 'Series sign-off', kind: 'description', body: "That's another day in the making. See you tomorrow.\n\n#dayinthelife #buildinpublic #shorts" },
-      { id: uid('t'), name: 'Core hashtags', kind: 'hashtags', body: '#dayinthelife #agencylife #buildinpublic #shorts' },
+      { id: uid('t'), name: 'Series sign-off', kind: 'description', body: "Still figuring out, still building. See you tomorrow.\n\n#dayinthelife #buildinpublic #shorts" },
+      { id: uid('t'), name: 'Core hashtags', kind: 'hashtags', body: '#dayinthelife #buildinpublic #shorts' },
       { id: uid('t'), name: 'Question pin', kind: 'comment', body: 'What would you have done differently? Tell me below and I will reply to every one.' },
     ],
     videos,
@@ -273,11 +270,11 @@ export function demoDrive(): DriveAPI {
     },
 
     async mediaUrl(item) {
-      return item.local ?? SAMPLE
+      return mediaOf(item)
     },
 
     async download(item, { onProgress, signal }) {
-      const res = await fetch(item.local ?? SAMPLE, { signal })
+      const res = await fetch(mediaOf(item), { signal })
       const total = Number(res.headers.get('content-length') || 0) || item.size
       const reader = res.body!.getReader()
       const chunks: Uint8Array[] = []
